@@ -22,25 +22,25 @@ function App() {
     const savedToken = localStorage.getItem("token");
     const decoded = savedToken ? decodeToken(savedToken) : null;
     return decoded
-      ? { ho_ten: decoded.name, vai_tro: decoded.role }
+      ? { ho_ten: decoded.name, ten_to_chuc: decoded.name, vai_tro: decoded.role }
       : null;
   });
-  const [pendingUsers, setPendingUsers] = useState([]);
+  const [pendingAccounts, setPendingAccounts] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
   const [notice, setNotice] = useState("");
   const role = currentUser?.vai_tro || decodeToken(token)?.role;
 
-  const loadPendingUsers = useCallback(async () => {
+  const loadPendingAccounts = useCallback(async () => {
     if (!token || role !== "admin") return;
 
     setLoadingPending(true);
     setNotice("");
 
     try {
-      const res = await axios.get(`${API}/auth/pending-users`, {
+      const res = await axios.get(`${API}/auth/pending-accounts`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setPendingUsers(res.data);
+      setPendingAccounts(res.data);
     } catch (err) {
       setNotice(err.response?.data?.message || "Không thể tải danh sách chờ duyệt.");
     } finally {
@@ -49,8 +49,8 @@ function App() {
   }, [role, token]);
 
   useEffect(() => {
-    loadPendingUsers();
-  }, [loadPendingUsers]);
+    loadPendingAccounts();
+  }, [loadPendingAccounts]);
 
   const handleLoginSuccess = (newToken, user) => {
     localStorage.setItem("token", newToken);
@@ -64,18 +64,24 @@ function App() {
     localStorage.removeItem("user");
     setToken(null);
     setCurrentUser(null);
-    setPendingUsers([]);
+    setPendingAccounts([]);
     setNotice("");
   };
 
-  const updateUserStatus = async (id, action) => {
+  const updateAccountStatus = async (account, action) => {
     try {
-      const endpoint = action === "approve" ? "approve-user" : "reject-user";
-      const res = await axios.put(`${API}/auth/${endpoint}/${id}`, {}, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const endpoint = action === "approve" ? "approve-account" : "reject-account";
+      const res = await axios.put(
+        `${API}/auth/${endpoint}/${account.loai_tai_khoan}/${account.id}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-      setPendingUsers((prev) => prev.filter((user) => user.ma_thanh_vien !== id));
+      setPendingAccounts((prev) =>
+        prev.filter(
+          (item) => !(item.id === account.id && item.loai_tai_khoan === account.loai_tai_khoan)
+        )
+      );
       setNotice(res.data.message);
     } catch (err) {
       setNotice(err.response?.data?.message || "Không thể cập nhật tài khoản.");
@@ -93,13 +99,13 @@ function App() {
           <h1 style={styles.title}>School Market</h1>
           <p style={styles.subtitle}>
             {role === "admin"
-              ? "Trang admin duyệt tài khoản thành viên"
+              ? "Trang admin duyệt tài khoản thành viên và tổ chức"
               : "Bạn đã đăng nhập thành công"}
           </p>
         </div>
         <div style={styles.account}>
-          <span style={styles.accountName}>{currentUser?.ho_ten || "Người dùng"}</span>
-          <span style={styles.roleBadge}>{role === "admin" ? "Admin" : "Thành viên"}</span>
+          <span style={styles.accountName}>{getDisplayName(currentUser)}</span>
+          <span style={styles.roleBadge}>{getRoleLabel(role)}</span>
           <button onClick={handleLogout} style={styles.logoutButton}>Đăng xuất</button>
         </div>
       </header>
@@ -110,21 +116,22 @@ function App() {
         <main style={styles.section}>
           <div style={styles.sectionHeader}>
             <h2 style={styles.sectionTitle}>Tài khoản chờ duyệt</h2>
-            <button onClick={loadPendingUsers} style={styles.secondaryButton}>
+            <button onClick={loadPendingAccounts} style={styles.secondaryButton}>
               Tải lại
             </button>
           </div>
 
           {loadingPending ? (
             <p style={styles.empty}>Đang tải danh sách...</p>
-          ) : pendingUsers.length === 0 ? (
+          ) : pendingAccounts.length === 0 ? (
             <p style={styles.empty}>Không có tài khoản nào đang chờ duyệt.</p>
           ) : (
             <div style={styles.tableWrap}>
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    <th style={styles.th}>Họ tên</th>
+                    <th style={styles.th}>Loại</th>
+                    <th style={styles.th}>Tên</th>
                     <th style={styles.th}>Số điện thoại</th>
                     <th style={styles.th}>Email</th>
                     <th style={styles.th}>Lớp</th>
@@ -133,23 +140,24 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pendingUsers.map((user) => (
-                    <tr key={user.ma_thanh_vien}>
-                      <td style={styles.td}>{user.ho_ten}</td>
-                      <td style={styles.td}>{user.sdt}</td>
-                      <td style={styles.td}>{user.email}</td>
-                      <td style={styles.td}>{user.lop}</td>
-                      <td style={styles.td}>{formatDate(user.ngay_sinh)}</td>
+                  {pendingAccounts.map((account) => (
+                    <tr key={`${account.loai_tai_khoan}-${account.id}`}>
+                      <td style={styles.td}>{getRoleLabel(account.loai_tai_khoan)}</td>
+                      <td style={styles.td}>{account.ten_hien_thi}</td>
+                      <td style={styles.td}>{account.sdt}</td>
+                      <td style={styles.td}>{account.email}</td>
+                      <td style={styles.td}>{account.lop || "-"}</td>
+                      <td style={styles.td}>{account.ngay_sinh ? formatDate(account.ngay_sinh) : "-"}</td>
                       <td style={styles.td}>
                         <div style={styles.actions}>
                           <button
-                            onClick={() => updateUserStatus(user.ma_thanh_vien, "approve")}
+                            onClick={() => updateAccountStatus(account, "approve")}
                             style={styles.approveButton}
                           >
                             Duyệt
                           </button>
                           <button
-                            onClick={() => updateUserStatus(user.ma_thanh_vien, "reject")}
+                            onClick={() => updateAccountStatus(account, "reject")}
                             style={styles.rejectButton}
                           >
                             Từ chối
@@ -167,12 +175,22 @@ function App() {
         <main style={styles.section}>
           <h2 style={styles.sectionTitle}>Tài khoản đã được duyệt</h2>
           <p style={styles.empty}>
-            Bạn có thể tiếp tục sử dụng các chức năng dành cho thành viên.
+            Bạn có thể tiếp tục sử dụng các chức năng dành cho {getRoleLabel(role).toLowerCase()}.
           </p>
         </main>
       )}
     </div>
   );
+}
+
+function getDisplayName(user) {
+  return user?.ho_ten || user?.ten_to_chuc || "Người dùng";
+}
+
+function getRoleLabel(role) {
+  if (role === "admin") return "Admin";
+  if (role === "to_chuc") return "Tổ chức";
+  return "Thành viên";
 }
 
 function formatDate(value) {

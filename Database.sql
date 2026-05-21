@@ -26,7 +26,7 @@ CREATE TABLE to_chuc (
     ten_to_chuc VARCHAR(150) NOT NULL,
     mat_khau VARCHAR(255) NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
-    sdt VARCHAR(20),
+    sdt VARCHAR(20) UNIQUE,
     dia_chi VARCHAR(255),
     mo_ta TEXT,
     trang_thai VARCHAR(50)

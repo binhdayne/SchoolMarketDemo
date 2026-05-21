@@ -4,7 +4,9 @@ import axios from "axios";
 const API = "http://localhost:5000/api";
 
 const initialForm = {
+  loai_tai_khoan: "thanh_vien",
   ho_ten: "",
+  ten_to_chuc: "",
   sdt: "",
   email: "",
   lop: "",
@@ -26,6 +28,12 @@ function AuthForm({ onLoginSuccess }) {
     setMessage("");
   };
 
+  const setAccountType = (loai_tai_khoan) => {
+    setForm({ ...initialForm, loai_tai_khoan });
+    setError("");
+    setMessage("");
+  };
+
   const resetForm = (nextMode) => {
     setMode(nextMode);
     setForm(initialForm);
@@ -41,14 +49,22 @@ function AuthForm({ onLoginSuccess }) {
 
     try {
       if (mode === "register") {
-        const res = await axios.post(`${API}/auth/register`, {
-          ho_ten: form.ho_ten,
+        const payload = {
+          loai_tai_khoan: form.loai_tai_khoan,
           sdt: form.sdt,
           email: form.email,
-          lop: form.lop,
-          ngay_sinh: form.ngay_sinh,
           password: form.password,
-        });
+        };
+
+        if (form.loai_tai_khoan === "to_chuc") {
+          payload.ten_to_chuc = form.ten_to_chuc;
+        } else {
+          payload.ho_ten = form.ho_ten;
+          payload.lop = form.lop;
+          payload.ngay_sinh = form.ngay_sinh;
+        }
+
+        const res = await axios.post(`${API}/auth/register`, payload);
 
         setMessage(res.data.message || "Đăng ký thành công. Vui lòng chờ admin duyệt tài khoản.");
         setMode("login");
@@ -77,13 +93,66 @@ function AuthForm({ onLoginSuccess }) {
         <form onSubmit={handleSubmit} style={styles.form}>
           {mode === "register" && (
             <>
-              <Field
-                label="Họ tên"
-                name="ho_ten"
-                value={form.ho_ten}
-                onChange={handleChange}
-                placeholder="Nguyễn Văn A"
-              />
+              <div style={styles.roleGroup}>
+                <span style={styles.label}>Vai trò</span>
+                <div style={styles.segmented}>
+                  <button
+                    type="button"
+                    onClick={() => setAccountType("thanh_vien")}
+                    style={{
+                      ...styles.segmentButton,
+                      ...(form.loai_tai_khoan === "thanh_vien" ? styles.segmentButtonActive : {}),
+                    }}
+                  >
+                    Thành viên
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAccountType("to_chuc")}
+                    style={{
+                      ...styles.segmentButton,
+                      ...(form.loai_tai_khoan === "to_chuc" ? styles.segmentButtonActive : {}),
+                    }}
+                  >
+                    Tổ chức
+                  </button>
+                </div>
+              </div>
+
+              {form.loai_tai_khoan === "to_chuc" ? (
+                <Field
+                  label="Tên tổ chức"
+                  name="ten_to_chuc"
+                  value={form.ten_to_chuc}
+                  onChange={handleChange}
+                  placeholder="Tên tổ chức"
+                />
+              ) : (
+                <>
+                  <Field
+                    label="Họ tên"
+                    name="ho_ten"
+                    value={form.ho_ten}
+                    onChange={handleChange}
+                    placeholder="Nguyễn Văn A"
+                  />
+                  <Field
+                    label="Lớp"
+                    name="lop"
+                    value={form.lop}
+                    onChange={handleChange}
+                    placeholder="12A1"
+                  />
+                  <Field
+                    label="Ngày sinh"
+                    name="ngay_sinh"
+                    type="date"
+                    value={form.ngay_sinh}
+                    onChange={handleChange}
+                  />
+                </>
+              )}
+
               <Field
                 label="Số điện thoại"
                 name="sdt"
@@ -98,20 +167,6 @@ function AuthForm({ onLoginSuccess }) {
                 value={form.email}
                 onChange={handleChange}
                 placeholder="email@example.com"
-              />
-              <Field
-                label="Lớp"
-                name="lop"
-                value={form.lop}
-                onChange={handleChange}
-                placeholder="12A1"
-              />
-              <Field
-                label="Ngày sinh"
-                name="ngay_sinh"
-                type="date"
-                value={form.ngay_sinh}
-                onChange={handleChange}
               />
             </>
           )}
@@ -203,6 +258,31 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: 14,
+  },
+  roleGroup: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  segmented: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    border: "1px solid #d1d5db",
+    borderRadius: 6,
+    overflow: "hidden",
+  },
+  segmentButton: {
+    backgroundColor: "#fff",
+    border: "none",
+    color: "#374151",
+    cursor: "pointer",
+    fontSize: 15,
+    fontWeight: 600,
+    padding: "10px 12px",
+  },
+  segmentButtonActive: {
+    backgroundColor: "#2563eb",
+    color: "#fff",
   },
   field: {
     display: "flex",
