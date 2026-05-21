@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import axios from "axios";
 import AuthForm from "./components/AuthForm";
+import MemberPage from "./pages/MemberPage";
+import OrganizationPage from "./pages/OrganizationPage";
 
 const API = "http://localhost:5000/api";
 
@@ -22,13 +24,20 @@ function App() {
     const savedToken = localStorage.getItem("token");
     const decoded = savedToken ? decodeToken(savedToken) : null;
     return decoded
-      ? { ho_ten: decoded.name, ten_to_chuc: decoded.name, vai_tro: decoded.role }
+      ? {
+          ho_ten: decoded.name,
+          ten_to_chuc: decoded.name,
+          vai_tro: decoded.role,
+          loai_tai_khoan: decoded.accountType,
+        }
       : null;
   });
   const [pendingAccounts, setPendingAccounts] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
   const [notice, setNotice] = useState("");
-  const role = currentUser?.vai_tro || decodeToken(token)?.role;
+  const decodedToken = token ? decodeToken(token) : null;
+  const role = currentUser?.vai_tro || decodedToken?.role;
+  const accountType = currentUser?.loai_tai_khoan || decodedToken?.accountType || role;
 
   const loadPendingAccounts = useCallback(async () => {
     if (!token || role !== "admin") return;
@@ -97,15 +106,11 @@ function App() {
       <header style={styles.header}>
         <div>
           <h1 style={styles.title}>School Market</h1>
-          <p style={styles.subtitle}>
-            {role === "admin"
-              ? "Trang admin duyệt tài khoản thành viên và tổ chức"
-              : "Bạn đã đăng nhập thành công"}
-          </p>
+          <p style={styles.subtitle}>{getHeaderSubtitle(role, accountType)}</p>
         </div>
         <div style={styles.account}>
           <span style={styles.accountName}>{getDisplayName(currentUser)}</span>
-          <span style={styles.roleBadge}>{getRoleLabel(role)}</span>
+          <span style={styles.roleBadge}>{getRoleLabel(accountType)}</span>
           <button onClick={handleLogout} style={styles.logoutButton}>Đăng xuất</button>
         </div>
       </header>
@@ -113,74 +118,88 @@ function App() {
       {notice && <p style={styles.notice}>{notice}</p>}
 
       {role === "admin" ? (
-        <main style={styles.section}>
-          <div style={styles.sectionHeader}>
-            <h2 style={styles.sectionTitle}>Tài khoản chờ duyệt</h2>
-            <button onClick={loadPendingAccounts} style={styles.secondaryButton}>
-              Tải lại
-            </button>
-          </div>
-
-          {loadingPending ? (
-            <p style={styles.empty}>Đang tải danh sách...</p>
-          ) : pendingAccounts.length === 0 ? (
-            <p style={styles.empty}>Không có tài khoản nào đang chờ duyệt.</p>
-          ) : (
-            <div style={styles.tableWrap}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>Loại</th>
-                    <th style={styles.th}>Tên</th>
-                    <th style={styles.th}>Số điện thoại</th>
-                    <th style={styles.th}>Email</th>
-                    <th style={styles.th}>Lớp</th>
-                    <th style={styles.th}>Ngày sinh</th>
-                    <th style={styles.th}>Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pendingAccounts.map((account) => (
-                    <tr key={`${account.loai_tai_khoan}-${account.id}`}>
-                      <td style={styles.td}>{getRoleLabel(account.loai_tai_khoan)}</td>
-                      <td style={styles.td}>{account.ten_hien_thi}</td>
-                      <td style={styles.td}>{account.sdt}</td>
-                      <td style={styles.td}>{account.email}</td>
-                      <td style={styles.td}>{account.lop || "-"}</td>
-                      <td style={styles.td}>{account.ngay_sinh ? formatDate(account.ngay_sinh) : "-"}</td>
-                      <td style={styles.td}>
-                        <div style={styles.actions}>
-                          <button
-                            onClick={() => updateAccountStatus(account, "approve")}
-                            style={styles.approveButton}
-                          >
-                            Duyệt
-                          </button>
-                          <button
-                            onClick={() => updateAccountStatus(account, "reject")}
-                            style={styles.rejectButton}
-                          >
-                            Từ chối
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </main>
+        <AdminPendingAccounts
+          pendingAccounts={pendingAccounts}
+          loadingPending={loadingPending}
+          onReload={loadPendingAccounts}
+          onUpdateStatus={updateAccountStatus}
+        />
+      ) : accountType === "to_chuc" ? (
+        <OrganizationPage user={currentUser} />
       ) : (
-        <main style={styles.section}>
-          <h2 style={styles.sectionTitle}>Tài khoản đã được duyệt</h2>
-          <p style={styles.empty}>
-            Bạn có thể tiếp tục sử dụng các chức năng dành cho {getRoleLabel(role).toLowerCase()}.
-          </p>
-        </main>
+        <MemberPage user={currentUser} />
       )}
     </div>
   );
+}
+
+function AdminPendingAccounts({ pendingAccounts, loadingPending, onReload, onUpdateStatus }) {
+  return (
+    <main style={styles.section}>
+      <div style={styles.sectionHeader}>
+        <h2 style={styles.sectionTitle}>Tài khoản chờ duyệt</h2>
+        <button onClick={onReload} style={styles.secondaryButton}>
+          Tải lại
+        </button>
+      </div>
+
+      {loadingPending ? (
+        <p style={styles.empty}>Đang tải danh sách...</p>
+      ) : pendingAccounts.length === 0 ? (
+        <p style={styles.empty}>Không có tài khoản nào đang chờ duyệt.</p>
+      ) : (
+        <div style={styles.tableWrap}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Loại</th>
+                <th style={styles.th}>Tên</th>
+                <th style={styles.th}>Số điện thoại</th>
+                <th style={styles.th}>Email</th>
+                <th style={styles.th}>Lớp</th>
+                <th style={styles.th}>Ngày sinh</th>
+                <th style={styles.th}>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingAccounts.map((account) => (
+                <tr key={`${account.loai_tai_khoan}-${account.id}`}>
+                  <td style={styles.td}>{getRoleLabel(account.loai_tai_khoan)}</td>
+                  <td style={styles.td}>{account.ten_hien_thi}</td>
+                  <td style={styles.td}>{account.sdt}</td>
+                  <td style={styles.td}>{account.email}</td>
+                  <td style={styles.td}>{account.lop || "-"}</td>
+                  <td style={styles.td}>{account.ngay_sinh ? formatDate(account.ngay_sinh) : "-"}</td>
+                  <td style={styles.td}>
+                    <div style={styles.actions}>
+                      <button
+                        onClick={() => onUpdateStatus(account, "approve")}
+                        style={styles.approveButton}
+                      >
+                        Duyệt
+                      </button>
+                      <button
+                        onClick={() => onUpdateStatus(account, "reject")}
+                        style={styles.rejectButton}
+                      >
+                        Từ chối
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </main>
+  );
+}
+
+function getHeaderSubtitle(role, accountType) {
+  if (role === "admin") return "Trang admin duyệt tài khoản thành viên và tổ chức";
+  if (accountType === "to_chuc") return "Trang làm việc dành riêng cho tổ chức";
+  return "Trang làm việc dành riêng cho thành viên";
 }
 
 function getDisplayName(user) {
