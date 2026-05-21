@@ -3,117 +3,151 @@ import axios from "axios";
 
 const API = "http://localhost:5000/api";
 
+const initialForm = {
+  ho_ten: "",
+  sdt: "",
+  email: "",
+  lop: "",
+  ngay_sinh: "",
+  identifier: "",
+  password: "",
+};
+
 function AuthForm({ onLoginSuccess }) {
-  const [mode, setMode] = useState("login"); // "login" | "register"
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [mode, setMode] = useState("login");
+  const [form, setForm] = useState(initialForm);
+  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
     setError("");
+    setMessage("");
+  };
+
+  const resetForm = (nextMode) => {
+    setMode(nextMode);
+    setForm(initialForm);
+    setError("");
+    setMessage("");
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setMessage("");
 
     try {
       if (mode === "register") {
-        await axios.post(`${API}/auth/register`, {
-          name: form.name,
+        const res = await axios.post(`${API}/auth/register`, {
+          ho_ten: form.ho_ten,
+          sdt: form.sdt,
           email: form.email,
+          lop: form.lop,
+          ngay_sinh: form.ngay_sinh,
           password: form.password,
         });
-        alert("Đăng ký thành công! Vui lòng đăng nhập.");
+
+        setMessage(res.data.message || "Đăng ký thành công. Vui lòng chờ admin duyệt tài khoản.");
         setMode("login");
-        setForm({ name: "", email: "", password: "" });
+        setForm(initialForm);
       } else {
         const res = await axios.post(`${API}/auth/login`, {
-          email: form.email,
+          identifier: form.identifier,
           password: form.password,
         });
+
         localStorage.setItem("token", res.data.token);
-        onLoginSuccess(res.data.token);
+        onLoginSuccess(res.data.token, res.data.user);
       }
     } catch (err) {
-      const msg =
-        err.response?.data?.message || "Đã có lỗi xảy ra. Vui lòng thử lại.";
-      setError(msg);
+      setError(err.response?.data?.message || "Đã có lỗi xảy ra. Vui lòng thử lại.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={styles.container}>
+    <div style={styles.page}>
       <div style={styles.card}>
-        <h2 style={styles.title}>
-          {mode === "login" ? "Đăng nhập" : "Đăng ký"}
-        </h2>
+        <h1 style={styles.title}>{mode === "login" ? "Đăng nhập" : "Đăng ký tài khoản"}</h1>
 
         <form onSubmit={handleSubmit} style={styles.form}>
           {mode === "register" && (
-            <div style={styles.field}>
-              <label style={styles.label}>Họ tên</label>
-              <input
-                name="name"
-                type="text"
-                value={form.name}
+            <>
+              <Field
+                label="Họ tên"
+                name="ho_ten"
+                value={form.ho_ten}
                 onChange={handleChange}
-                placeholder="Nhập họ tên"
-                required
-                style={styles.input}
+                placeholder="Nguyễn Văn A"
               />
-            </div>
+              <Field
+                label="Số điện thoại"
+                name="sdt"
+                value={form.sdt}
+                onChange={handleChange}
+                placeholder="0901234567"
+              />
+              <Field
+                label="Email"
+                name="email"
+                type="email"
+                value={form.email}
+                onChange={handleChange}
+                placeholder="email@example.com"
+              />
+              <Field
+                label="Lớp"
+                name="lop"
+                value={form.lop}
+                onChange={handleChange}
+                placeholder="12A1"
+              />
+              <Field
+                label="Ngày sinh"
+                name="ngay_sinh"
+                type="date"
+                value={form.ngay_sinh}
+                onChange={handleChange}
+              />
+            </>
           )}
 
-          <div style={styles.field}>
-            <label style={styles.label}>Email</label>
-            <input
-              name="email"
-              type="email"
-              value={form.email}
+          {mode === "login" && (
+            <Field
+              label="Email hoặc số điện thoại"
+              name="identifier"
+              value={form.identifier}
               onChange={handleChange}
-              placeholder="Nhập email"
-              required
-              style={styles.input}
+              placeholder="email@example.com hoặc 0901234567"
             />
-          </div>
+          )}
 
-          <div style={styles.field}>
-            <label style={styles.label}>Mật khẩu</label>
-            <input
-              name="password"
-              type="password"
-              value={form.password}
-              onChange={handleChange}
-              placeholder="Nhập mật khẩu"
-              required
-              style={styles.input}
-            />
-          </div>
+          <Field
+            label="Mật khẩu"
+            name="password"
+            type="password"
+            value={form.password}
+            onChange={handleChange}
+            placeholder="Nhập mật khẩu"
+          />
 
+          {message && <p style={styles.success}>{message}</p>}
           {error && <p style={styles.error}>{error}</p>}
 
-          <button type="submit" disabled={loading} style={styles.button}>
-            {loading
-              ? "Đang xử lý..."
-              : mode === "login"
-              ? "Đăng nhập"
-              : "Đăng ký"}
+          <button type="submit" disabled={loading} style={styles.submitButton}>
+            {loading ? "Đang xử lý..." : mode === "login" ? "Đăng nhập" : "Đăng ký"}
           </button>
         </form>
 
         <p style={styles.switchText}>
           {mode === "login" ? "Chưa có tài khoản? " : "Đã có tài khoản? "}
           <button
-            onClick={() => {
-              setMode(mode === "login" ? "register" : "login");
-              setForm({ name: "", email: "", password: "" });
-              setError("");
-            }}
+            type="button"
+            onClick={() => resetForm(mode === "login" ? "register" : "login")}
             style={styles.switchButton}
           >
             {mode === "login" ? "Đăng ký" : "Đăng nhập"}
@@ -124,78 +158,112 @@ function AuthForm({ onLoginSuccess }) {
   );
 }
 
+function Field({ label, name, value, onChange, type = "text", placeholder = "" }) {
+  return (
+    <label style={styles.field}>
+      <span style={styles.label}>{label}</span>
+      <input
+        name={name}
+        type={type}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        required
+        style={styles.input}
+      />
+    </label>
+  );
+}
+
 const styles = {
-  container: {
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
+  page: {
     minHeight: "100vh",
-    backgroundColor: "#f0f2f5",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f4f6f8",
+    padding: 20,
   },
   card: {
-    backgroundColor: "#fff",
-    padding: "40px",
-    borderRadius: "8px",
-    boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
     width: "100%",
-    maxWidth: "400px",
+    maxWidth: 440,
+    backgroundColor: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 8,
+    padding: 28,
+    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
   },
   title: {
+    margin: "0 0 22px",
+    color: "#111827",
+    fontSize: 26,
     textAlign: "center",
-    marginBottom: "24px",
-    color: "#333",
   },
   form: {
     display: "flex",
     flexDirection: "column",
-    gap: "16px",
+    gap: 14,
   },
   field: {
     display: "flex",
     flexDirection: "column",
-    gap: "6px",
+    gap: 6,
   },
   label: {
-    fontWeight: "bold",
-    fontSize: "14px",
-    color: "#555",
+    color: "#374151",
+    fontSize: 14,
+    fontWeight: 600,
   },
   input: {
-    padding: "10px 12px",
-    border: "1px solid #ddd",
-    borderRadius: "4px",
-    fontSize: "14px",
+    border: "1px solid #d1d5db",
+    borderRadius: 6,
+    fontSize: 15,
+    padding: "11px 12px",
     outline: "none",
   },
-  button: {
-    padding: "12px",
-    backgroundColor: "#1890ff",
-    color: "#fff",
+  submitButton: {
     border: "none",
-    borderRadius: "4px",
-    fontSize: "16px",
+    borderRadius: 6,
+    backgroundColor: "#2563eb",
+    color: "#fff",
     cursor: "pointer",
-    marginTop: "8px",
+    fontSize: 16,
+    fontWeight: 600,
+    padding: "12px 14px",
+    marginTop: 4,
+  },
+  success: {
+    color: "#047857",
+    backgroundColor: "#ecfdf5",
+    border: "1px solid #a7f3d0",
+    borderRadius: 6,
+    padding: "10px 12px",
+    margin: 0,
+    fontSize: 14,
   },
   error: {
-    color: "red",
-    fontSize: "13px",
+    color: "#b91c1c",
+    backgroundColor: "#fef2f2",
+    border: "1px solid #fecaca",
+    borderRadius: 6,
+    padding: "10px 12px",
     margin: 0,
+    fontSize: 14,
   },
   switchText: {
+    color: "#4b5563",
+    fontSize: 14,
+    margin: "18px 0 0",
     textAlign: "center",
-    marginTop: "16px",
-    fontSize: "14px",
-    color: "#555",
   },
   switchButton: {
     background: "none",
     border: "none",
-    color: "#1890ff",
+    color: "#2563eb",
     cursor: "pointer",
-    fontSize: "14px",
+    fontSize: 14,
+    fontWeight: 600,
     padding: 0,
-    textDecoration: "underline",
   },
 };
 

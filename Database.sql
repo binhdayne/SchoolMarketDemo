@@ -9,7 +9,8 @@ CREATE TABLE thanh_vien (
     ho_ten VARCHAR(100) NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
     mat_khau VARCHAR(255) NOT NULL,
-    sdt VARCHAR(20),
+    sdt VARCHAR(20) UNIQUE,
+    ngay_sinh DATE,
     dia_chi VARCHAR(255),
     lop VARCHAR(50),
     ma_ngan_hang VARCHAR(50),
@@ -37,6 +38,9 @@ CREATE TABLE nguoi_kiem_duyet (
     email VARCHAR(100) UNIQUE NOT NULL,
     mat_khau VARCHAR(255) NOT NULL
 );
+
+INSERT INTO nguoi_kiem_duyet (ho_ten, email, mat_khau) VALUES
+('Quan tri vien', 'admin@schoolmarket.local', '$2b$10$IL7q1q5n8PTBZcDBG.ch7uLCFyeeOmLvW0MjMNKEusD5bJ356wnxS');
 
 CREATE TABLE danh_muc (
     ma_danh_muc INT AUTO_INCREMENT PRIMARY KEY,
