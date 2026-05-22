@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
+import "./AuthForm.css";
 
 const API = "http://localhost:5000/api";
 
@@ -21,6 +22,8 @@ function AuthForm({ onLoginSuccess }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const isLogin = mode === "login";
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -66,7 +69,9 @@ function AuthForm({ onLoginSuccess }) {
 
         const res = await axios.post(`${API}/auth/register`, payload);
 
-        setMessage(res.data.message || "Đăng ký thành công. Vui lòng chờ admin duyệt tài khoản.");
+        setMessage(
+          res.data.message || "Đăng ký thành công. Vui lòng chờ admin duyệt tài khoản."
+        );
         setMode("login");
         setForm(initialForm);
       } else {
@@ -86,137 +91,197 @@ function AuthForm({ onLoginSuccess }) {
   };
 
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
-        <h1 style={styles.title}>{mode === "login" ? "Đăng nhập" : "Đăng ký tài khoản"}</h1>
+    <main className="auth-page">
+      <section className="auth-shell" aria-label="School Market authentication">
+        <BrandPanel />
 
-        <form onSubmit={handleSubmit} style={styles.form}>
-          {mode === "register" && (
-            <>
-              <div style={styles.roleGroup}>
-                <span style={styles.label}>Vai trò</span>
-                <div style={styles.segmented}>
-                  <button
-                    type="button"
-                    onClick={() => setAccountType("thanh_vien")}
-                    style={{
-                      ...styles.segmentButton,
-                      ...(form.loai_tai_khoan === "thanh_vien" ? styles.segmentButtonActive : {}),
-                    }}
-                  >
-                    Thành viên
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAccountType("to_chuc")}
-                    style={{
-                      ...styles.segmentButton,
-                      ...(form.loai_tai_khoan === "to_chuc" ? styles.segmentButtonActive : {}),
-                    }}
-                  >
-                    Tổ chức
-                  </button>
-                </div>
+        <section className="auth-panel">
+          <div className="auth-card">
+            <div className="auth-card-header">
+              <div className="auth-mobile-brand">
+                <img className="brand-logo" src="/images/school-market-icon-v2.png" alt="" />
+                <span>School Market</span>
               </div>
+              <h1>{isLogin ? "Đăng nhập vào School Market" : "Tạo tài khoản School Market"}</h1>
+              <p>
+                {isLogin
+                  ? "Tiếp tục mua bán, trao đổi và theo dõi hoạt động trong trường."
+                  : "Đăng ký tài khoản để tham gia cộng đồng School Market."}
+              </p>
+            </div>
 
-              {form.loai_tai_khoan === "to_chuc" ? (
-                <Field
-                  label="Tên tổ chức"
-                  name="ten_to_chuc"
-                  value={form.ten_to_chuc}
-                  onChange={handleChange}
-                  placeholder="Tên tổ chức"
-                />
-              ) : (
+            <form onSubmit={handleSubmit} className="auth-form">
+              {!isLogin && (
                 <>
-                  <Field
-                    label="Họ tên"
-                    name="ho_ten"
-                    value={form.ho_ten}
-                    onChange={handleChange}
-                    placeholder="Nguyễn Văn A"
-                  />
-                  <Field
-                    label="Lớp"
-                    name="lop"
-                    value={form.lop}
-                    onChange={handleChange}
-                    placeholder="12A1"
-                  />
-                  <Field
-                    label="Ngày sinh"
-                    name="ngay_sinh"
-                    type="date"
-                    value={form.ngay_sinh}
-                    onChange={handleChange}
-                  />
+                  <div className="auth-role-group">
+                    <span className="auth-label">Vai trò</span>
+                    <div className="auth-segmented" role="group" aria-label="Chọn vai trò">
+                      <button
+                        type="button"
+                        onClick={() => setAccountType("thanh_vien")}
+                        className={form.loai_tai_khoan === "thanh_vien" ? "active" : ""}
+                      >
+                        Thành viên
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAccountType("to_chuc")}
+                        className={form.loai_tai_khoan === "to_chuc" ? "active" : ""}
+                      >
+                        Tổ chức
+                      </button>
+                    </div>
+                  </div>
+
+                  {form.loai_tai_khoan === "to_chuc" ? (
+                    <Field
+                      label="Tên tổ chức"
+                      name="ten_to_chuc"
+                      value={form.ten_to_chuc}
+                      onChange={handleChange}
+                      placeholder="Câu lạc bộ Sách Xanh"
+                    />
+                  ) : (
+                    <>
+                      <Field
+                        label="Họ tên"
+                        name="ho_ten"
+                        value={form.ho_ten}
+                        onChange={handleChange}
+                        placeholder="Nguyễn Văn A"
+                      />
+                      <div className="auth-two-columns">
+                        <Field
+                          label="Lớp"
+                          name="lop"
+                          value={form.lop}
+                          onChange={handleChange}
+                          placeholder="12A1"
+                        />
+                        <Field
+                          label="Ngày sinh"
+                          name="ngay_sinh"
+                          type="date"
+                          value={form.ngay_sinh}
+                          onChange={handleChange}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <div className="auth-two-columns">
+                    <Field
+                      label="Số điện thoại"
+                      name="sdt"
+                      value={form.sdt}
+                      onChange={handleChange}
+                      placeholder="0901234567"
+                    />
+                    <Field
+                      label="Email"
+                      name="email"
+                      type="email"
+                      value={form.email}
+                      onChange={handleChange}
+                      placeholder="email@example.com"
+                    />
+                  </div>
                 </>
               )}
 
+              {isLogin && (
+                <Field
+                  label="Email hoặc số điện thoại"
+                  name="identifier"
+                  value={form.identifier}
+                  onChange={handleChange}
+                  placeholder="email@example.com hoặc 0901234567"
+                />
+              )}
+
               <Field
-                label="Số điện thoại"
-                name="sdt"
-                value={form.sdt}
+                label="Mật khẩu"
+                name="password"
+                type="password"
+                value={form.password}
                 onChange={handleChange}
-                placeholder="0901234567"
+                placeholder="Nhập mật khẩu"
               />
-              <Field
-                label="Email"
-                name="email"
-                type="email"
-                value={form.email}
-                onChange={handleChange}
-                placeholder="email@example.com"
-              />
-            </>
-          )}
 
-          {mode === "login" && (
-            <Field
-              label="Email hoặc số điện thoại"
-              name="identifier"
-              value={form.identifier}
-              onChange={handleChange}
-              placeholder="email@example.com hoặc 0901234567"
-            />
-          )}
+              {message && <p className="auth-alert success">{message}</p>}
+              {error && <p className="auth-alert error">{error}</p>}
 
-          <Field
-            label="Mật khẩu"
-            name="password"
-            type="password"
-            value={form.password}
-            onChange={handleChange}
-            placeholder="Nhập mật khẩu"
-          />
+              <button type="submit" disabled={loading} className="auth-submit">
+                {loading ? "Đang xử lý..." : isLogin ? "Đăng nhập" : "Đăng ký"}
+              </button>
+            </form>
 
-          {message && <p style={styles.success}>{message}</p>}
-          {error && <p style={styles.error}>{error}</p>}
+            <div className="auth-divider" aria-hidden="true" />
 
-          <button type="submit" disabled={loading} style={styles.submitButton}>
-            {loading ? "Đang xử lý..." : mode === "login" ? "Đăng nhập" : "Đăng ký"}
-          </button>
-        </form>
+            <button
+              type="button"
+              onClick={() => resetForm(isLogin ? "register" : "login")}
+              className="auth-create"
+            >
+              {isLogin ? "Tạo tài khoản mới" : "Quay lại đăng nhập"}
+            </button>
+          </div>
+        </section>
+      </section>
+    </main>
+  );
+}
 
-        <p style={styles.switchText}>
-          {mode === "login" ? "Chưa có tài khoản? " : "Đã có tài khoản? "}
-          <button
-            type="button"
-            onClick={() => resetForm(mode === "login" ? "register" : "login")}
-            style={styles.switchButton}
-          >
-            {mode === "login" ? "Đăng ký" : "Đăng nhập"}
-          </button>
+function BrandPanel() {
+  return (
+    <section className="brand-panel" aria-label="School Market">
+      <div className="brand-copy">
+        <div className="brand-logo-row">
+          <img className="brand-logo" src="/images/school-market-icon-v2.png" alt="" />
+          <span className="brand-name">School Market</span>
+        </div>
+        <h2>
+          Chợ học đường cho mọi món đồ <span>bạn cần.</span>
+        </h2>
+        <p>
+          Kết nối học sinh, câu lạc bộ và tổ chức để mua bán, trao đổi, gây quỹ
+          nhanh hơn trong cùng một không gian.
         </p>
       </div>
-    </div>
+
+      <div className="market-visual" aria-hidden="true">
+        <div
+          className="visual-photo visual-photo-main"
+          style={{ backgroundImage: "url('/images/school-exchange-supplies.jpg')" }}
+        />
+        <div
+          className="visual-photo visual-photo-secondary"
+          style={{ backgroundImage: "url('/images/school-exchange-backpacks.jpg')" }}
+        />
+        <div
+          className="visual-photo visual-photo-tertiary"
+          style={{
+            backgroundImage: "url('/images/school-exchange-supplies.jpg')",
+            backgroundPosition: "left center",
+          }}
+        />
+        <div className="visual-card-small">
+          <span className="badge-icon">₫</span>
+          <strong>Sách lớp 12</strong>
+          <span>Còn mới 90%</span>
+          <b>45.000đ</b>
+        </div>
+        <div className="visual-chat">Đã duyệt</div>
+        <div className="visual-heart">♡</div>
+      </div>
+    </section>
   );
 }
 
 function Field({ label, name, value, onChange, type = "text", placeholder = "" }) {
   return (
-    <label style={styles.field}>
-      <span style={styles.label}>{label}</span>
+    <label className="auth-field">
+      <span className="auth-label">{label}</span>
       <input
         name={name}
         type={type}
@@ -224,127 +289,9 @@ function Field({ label, name, value, onChange, type = "text", placeholder = "" }
         onChange={onChange}
         placeholder={placeholder}
         required
-        style={styles.input}
       />
     </label>
   );
 }
-
-const styles = {
-  page: {
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#f4f6f8",
-    padding: 20,
-  },
-  card: {
-    width: "100%",
-    maxWidth: 440,
-    backgroundColor: "#fff",
-    border: "1px solid #e5e7eb",
-    borderRadius: 8,
-    padding: 28,
-    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
-  },
-  title: {
-    margin: "0 0 22px",
-    color: "#111827",
-    fontSize: 26,
-    textAlign: "center",
-  },
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 14,
-  },
-  roleGroup: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-  },
-  segmented: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    border: "1px solid #d1d5db",
-    borderRadius: 6,
-    overflow: "hidden",
-  },
-  segmentButton: {
-    backgroundColor: "#fff",
-    border: "none",
-    color: "#374151",
-    cursor: "pointer",
-    fontSize: 15,
-    fontWeight: 600,
-    padding: "10px 12px",
-  },
-  segmentButtonActive: {
-    backgroundColor: "#2563eb",
-    color: "#fff",
-  },
-  field: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-  },
-  label: {
-    color: "#374151",
-    fontSize: 14,
-    fontWeight: 600,
-  },
-  input: {
-    border: "1px solid #d1d5db",
-    borderRadius: 6,
-    fontSize: 15,
-    padding: "11px 12px",
-    outline: "none",
-  },
-  submitButton: {
-    border: "none",
-    borderRadius: 6,
-    backgroundColor: "#2563eb",
-    color: "#fff",
-    cursor: "pointer",
-    fontSize: 16,
-    fontWeight: 600,
-    padding: "12px 14px",
-    marginTop: 4,
-  },
-  success: {
-    color: "#047857",
-    backgroundColor: "#ecfdf5",
-    border: "1px solid #a7f3d0",
-    borderRadius: 6,
-    padding: "10px 12px",
-    margin: 0,
-    fontSize: 14,
-  },
-  error: {
-    color: "#b91c1c",
-    backgroundColor: "#fef2f2",
-    border: "1px solid #fecaca",
-    borderRadius: 6,
-    padding: "10px 12px",
-    margin: 0,
-    fontSize: 14,
-  },
-  switchText: {
-    color: "#4b5563",
-    fontSize: 14,
-    margin: "18px 0 0",
-    textAlign: "center",
-  },
-  switchButton: {
-    background: "none",
-    border: "none",
-    color: "#2563eb",
-    cursor: "pointer",
-    fontSize: 14,
-    fontWeight: 600,
-    padding: 0,
-  },
-};
 
 export default AuthForm;

@@ -64,7 +64,7 @@ const styles = {
     padding: 22,
   },
   eyebrow: {
-    color: "#2563eb",
+    color: "#008a73",
     fontSize: 13,
     fontWeight: 700,
     margin: "0 0 8px",
@@ -83,14 +83,14 @@ const styles = {
   },
   profileBox: {
     alignSelf: "flex-start",
-    backgroundColor: "#eff6ff",
-    border: "1px solid #bfdbfe",
+    backgroundColor: "#e6f6f1",
+    border: "1px solid #a9ded0",
     borderRadius: 8,
     minWidth: 110,
     padding: 14,
   },
   profileLabel: {
-    color: "#1e40af",
+    color: "#006f5c",
     display: "block",
     fontSize: 13,
     marginBottom: 4,
@@ -121,7 +121,7 @@ const styles = {
     margin: "0 0 16px",
   },
   panelButton: {
-    backgroundColor: "#2563eb",
+    backgroundColor: "#008a73",
     border: "none",
     borderRadius: 6,
     color: "#fff",

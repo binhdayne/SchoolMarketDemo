@@ -104,9 +104,12 @@ function App() {
   return (
     <div style={styles.page}>
       <header style={styles.header}>
-        <div>
-          <h1 style={styles.title}>School Market</h1>
-          <p style={styles.subtitle}>{getHeaderSubtitle(role, accountType)}</p>
+        <div style={styles.brandHeader}>
+          <img src="/images/school-market-icon-v2.png" alt="School Market" style={styles.headerLogo} />
+          <div>
+            <h1 style={styles.title}>School Market</h1>
+            <p style={styles.subtitle}>{getHeaderSubtitle(role, accountType)}</p>
+          </div>
         </div>
         <div style={styles.account}>
           <span style={styles.accountName}>{getDisplayName(currentUser)}</span>
@@ -231,6 +234,18 @@ const styles = {
     gap: 16,
     marginBottom: 20,
   },
+  brandHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+  },
+  headerLogo: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    objectFit: "cover",
+    boxShadow: "0 8px 22px rgba(0, 138, 115, 0.18)",
+  },
   title: {
     margin: 0,
     fontSize: 30,
@@ -250,8 +265,8 @@ const styles = {
     fontWeight: 600,
   },
   roleBadge: {
-    backgroundColor: "#e0f2fe",
-    color: "#075985",
+    backgroundColor: "#e6f6f1",
+    color: "#006f5c",
     borderRadius: 999,
     padding: "5px 10px",
     fontSize: 13,
@@ -267,10 +282,10 @@ const styles = {
     padding: "9px 12px",
   },
   notice: {
-    backgroundColor: "#eff6ff",
-    border: "1px solid #bfdbfe",
+    backgroundColor: "#e6f6f1",
+    border: "1px solid #a9ded0",
     borderRadius: 8,
-    color: "#1e40af",
+    color: "#006f5c",
     margin: "0 0 16px",
     padding: "12px 14px",
   },
@@ -327,7 +342,7 @@ const styles = {
   approveButton: {
     border: "none",
     borderRadius: 6,
-    backgroundColor: "#16a34a",
+    backgroundColor: "#008a73",
     color: "#fff",
     cursor: "pointer",
     fontWeight: 600,
