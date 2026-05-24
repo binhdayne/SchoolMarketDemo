@@ -21,6 +21,7 @@ function AuthForm({ onLoginSuccess }) {
   const [form, setForm] = useState(initialForm);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [bannedNotice, setBannedNotice] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const isLogin = mode === "login";
@@ -29,12 +30,14 @@ function AuthForm({ onLoginSuccess }) {
     setForm({ ...form, [e.target.name]: e.target.value });
     setError("");
     setMessage("");
+    setBannedNotice(null);
   };
 
   const setAccountType = (loai_tai_khoan) => {
     setForm({ ...initialForm, loai_tai_khoan });
     setError("");
     setMessage("");
+    setBannedNotice(null);
   };
 
   const resetForm = (nextMode) => {
@@ -42,6 +45,7 @@ function AuthForm({ onLoginSuccess }) {
     setForm(initialForm);
     setError("");
     setMessage("");
+    setBannedNotice(null);
   };
 
   const handleSubmit = async (e) => {
@@ -49,6 +53,7 @@ function AuthForm({ onLoginSuccess }) {
     setLoading(true);
     setError("");
     setMessage("");
+    setBannedNotice(null);
 
     try {
       if (mode === "register") {
@@ -84,7 +89,18 @@ function AuthForm({ onLoginSuccess }) {
         onLoginSuccess(res.data.token, res.data.user);
       }
     } catch (err) {
-      setError(err.response?.data?.message || "Đã có lỗi xảy ra. Vui lòng thử lại.");
+      const data = err.response?.data;
+      const errorMessage = data?.message || "Đã có lỗi xảy ra. Vui lòng thử lại.";
+
+      if (data?.trang_thai === "bi_cam" || errorMessage.includes("bị quản trị viên cấm")) {
+        setBannedNotice({
+          message: errorMessage,
+          reason: data?.ly_do_cam || getReasonFromBannedMessage(errorMessage),
+          accountType: data?.loai_tai_khoan,
+        });
+      } else {
+        setError(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
@@ -228,6 +244,13 @@ function AuthForm({ onLoginSuccess }) {
           </div>
         </section>
       </section>
+
+      {bannedNotice && (
+        <BannedAccountModal
+          notice={bannedNotice}
+          onClose={() => setBannedNotice(null)}
+        />
+      )}
     </main>
   );
 }
@@ -292,6 +315,35 @@ function Field({ label, name, value, onChange, type = "text", placeholder = "" }
       />
     </label>
   );
+}
+
+function BannedAccountModal({ notice, onClose }) {
+  return (
+    <div className="banned-modal-overlay" role="presentation">
+      <section className="banned-modal" role="dialog" aria-modal="true" aria-labelledby="banned-title">
+        <div className="banned-modal-header">
+          <h2 id="banned-title">Tài khoản đã bị cấm</h2>
+          <button type="button" onClick={onClose} aria-label="Đóng">
+            x
+          </button>
+        </div>
+        <p className="banned-modal-message">{notice.message}</p>
+        <div className="banned-reason-box">
+          <span>Lý do</span>
+          <strong>{notice.reason || "Không có lý do cụ thể."}</strong>
+        </div>
+        <button type="button" onClick={onClose} className="banned-confirm">
+          Đã hiểu
+        </button>
+      </section>
+    </div>
+  );
+}
+
+function getReasonFromBannedMessage(message) {
+  const marker = "lý do:";
+  const index = message.indexOf(marker);
+  return index >= 0 ? message.slice(index + marker.length).trim() : "";
 }
 
 export default AuthForm;

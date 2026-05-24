@@ -7,7 +7,8 @@ const JWT_SECRET = "secret";
 const USER_STATUS = {
     PENDING: "cho_duyet",
     APPROVED: "da_duyet",
-    REJECTED: "tu_choi"
+    REJECTED: "tu_choi",
+    BANNED: "bi_cam"
 };
 const ACCOUNT_TYPE = {
     MEMBER: "thanh_vien",
@@ -27,6 +28,7 @@ const memberColumns = `
     ten_ngan_hang,
     vai_tro,
     trang_thai,
+    ly_do_cam,
     so_tien_phi_no
 `;
 
@@ -37,7 +39,8 @@ const organizationColumns = `
     email,
     dia_chi,
     mo_ta,
-    trang_thai
+    trang_thai,
+    ly_do_cam
 `;
 
 async function isIdentifierTaken(email, sdt) {
@@ -55,6 +58,12 @@ async function isIdentifierTaken(email, sdt) {
 
 function signToken(payload) {
     return jwt.sign(payload, JWT_SECRET, { expiresIn: "1d" });
+}
+
+function getBannedMessage(accountType, reason) {
+    const label = accountType === ACCOUNT_TYPE.ORGANIZATION ? "tổ chức" : "thành viên";
+    const displayReason = reason || "Không có lý do cụ thể.";
+    return `Tài khoản ${label} này đã bị quản trị viên cấm với lý do: ${displayReason}`;
 }
 
 exports.register = async (req, res) => {
@@ -169,6 +178,15 @@ exports.login = async (req, res) => {
                 return res.status(401).json({ message: "Sai email/số điện thoại hoặc mật khẩu" });
             }
 
+            if (member.trang_thai === USER_STATUS.BANNED) {
+                return res.status(403).json({
+                    message: getBannedMessage(ACCOUNT_TYPE.MEMBER, member.ly_do_cam),
+                    trang_thai: USER_STATUS.BANNED,
+                    ly_do_cam: member.ly_do_cam,
+                    loai_tai_khoan: ACCOUNT_TYPE.MEMBER
+                });
+            }
+
             if (member.trang_thai !== USER_STATUS.APPROVED) {
                 return res.status(403).json({ message: "Tài khoản chưa được duyệt" });
             }
@@ -210,6 +228,15 @@ exports.login = async (req, res) => {
 
         if (!isMatch) {
             return res.status(401).json({ message: "Sai email/số điện thoại hoặc mật khẩu" });
+        }
+
+        if (organization.trang_thai === USER_STATUS.BANNED) {
+            return res.status(403).json({
+                message: getBannedMessage(ACCOUNT_TYPE.ORGANIZATION, organization.ly_do_cam),
+                trang_thai: USER_STATUS.BANNED,
+                ly_do_cam: organization.ly_do_cam,
+                loai_tai_khoan: ACCOUNT_TYPE.ORGANIZATION
+            });
         }
 
         if (organization.trang_thai !== USER_STATUS.APPROVED) {
@@ -332,7 +359,7 @@ exports.updateAccountStatus = async (req, res) => {
 
     try {
         const [result] = await promiseDb.query(
-            `UPDATE ${table} SET trang_thai = ? WHERE ${idColumn} = ?`,
+            `UPDATE ${table} SET trang_thai = ?, ly_do_cam = NULL WHERE ${idColumn} = ?`,
             [nextStatus, id]
         );
 
@@ -345,6 +372,61 @@ exports.updateAccountStatus = async (req, res) => {
         });
     } catch (err) {
         res.status(500).json({ message: "Không thể cập nhật tài khoản", error: err.message });
+    }
+};
+
+exports.banAccount = async (req, res) => {
+    const { type, id } = req.params;
+    const ly_do_cam = (req.body.ly_do_cam || req.body.reason || "").trim();
+    const table = type === ACCOUNT_TYPE.ORGANIZATION ? "to_chuc" : "thanh_vien";
+    const idColumn = type === ACCOUNT_TYPE.ORGANIZATION ? "ma_to_chuc" : "ma_thanh_vien";
+
+    if (![ACCOUNT_TYPE.MEMBER, ACCOUNT_TYPE.ORGANIZATION].includes(type)) {
+        return res.status(400).json({ message: "Loại tài khoản không hợp lệ" });
+    }
+
+    if (!ly_do_cam) {
+        return res.status(400).json({ message: "Vui lòng nhập lý do cấm tài khoản" });
+    }
+
+    try {
+        const [result] = await promiseDb.query(
+            `UPDATE ${table} SET trang_thai = ?, ly_do_cam = ? WHERE ${idColumn} = ?`,
+            [USER_STATUS.BANNED, ly_do_cam, id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: "Không tìm thấy tài khoản" });
+        }
+
+        res.json({ message: "Đã cấm tài khoản", trang_thai: USER_STATUS.BANNED, ly_do_cam });
+    } catch (err) {
+        res.status(500).json({ message: "Không thể cấm tài khoản", error: err.message });
+    }
+};
+
+exports.unbanAccount = async (req, res) => {
+    const { type, id } = req.params;
+    const table = type === ACCOUNT_TYPE.ORGANIZATION ? "to_chuc" : "thanh_vien";
+    const idColumn = type === ACCOUNT_TYPE.ORGANIZATION ? "ma_to_chuc" : "ma_thanh_vien";
+
+    if (![ACCOUNT_TYPE.MEMBER, ACCOUNT_TYPE.ORGANIZATION].includes(type)) {
+        return res.status(400).json({ message: "Loại tài khoản không hợp lệ" });
+    }
+
+    try {
+        const [result] = await promiseDb.query(
+            `UPDATE ${table} SET trang_thai = ?, ly_do_cam = NULL WHERE ${idColumn} = ?`,
+            [USER_STATUS.APPROVED, id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: "Không tìm thấy tài khoản" });
+        }
+
+        res.json({ message: "Đã bỏ cấm tài khoản", trang_thai: USER_STATUS.APPROVED, ly_do_cam: null });
+    } catch (err) {
+        res.status(500).json({ message: "Không thể bỏ cấm tài khoản", error: err.message });
     }
 };
 

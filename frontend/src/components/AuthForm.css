@@ -380,6 +380,94 @@
   border: 1px solid #ffc9c3;
 }
 
+.banned-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.banned-modal {
+  width: min(100%, 460px);
+  border: 1px solid #fecaca;
+  border-radius: 16px;
+  background: #ffffff;
+  color: #07101f;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
+  padding: 22px;
+}
+
+.banned-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.banned-modal-header h2 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.banned-modal-header button {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+  color: #111827;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.banned-modal-message {
+  margin: 14px 0 16px;
+  color: #b42318;
+  line-height: 1.5;
+}
+
+.banned-reason-box {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  background: #fff1f0;
+  padding: 12px 14px;
+}
+
+.banned-reason-box span {
+  color: #7f1d1d;
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.banned-reason-box strong {
+  color: #111827;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.banned-confirm {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 18px;
+  border: none;
+  border-radius: 12px;
+  background: #b91c1c;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 800;
+}
+
 @media (max-height: 760px) and (min-width: 1101px) {
   .brand-panel {
     padding-top: 24px;

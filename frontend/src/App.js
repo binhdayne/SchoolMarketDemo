@@ -37,6 +37,9 @@ function App() {
   const [adminOrganizations, setAdminOrganizations] = useState([]);
   const [loadingAdminData, setLoadingAdminData] = useState(false);
   const [activeAdminView, setActiveAdminView] = useState("pending");
+  const [banDialog, setBanDialog] = useState(null);
+  const [banReason, setBanReason] = useState("");
+  const [banSubmitting, setBanSubmitting] = useState(false);
   const [notice, setNotice] = useState("");
   const decodedToken = token ? decodeToken(token) : null;
   const role = currentUser?.vai_tro || decodedToken?.role;
@@ -104,6 +107,8 @@ function App() {
     setAdminMembers([]);
     setAdminOrganizations([]);
     setActiveAdminView("pending");
+    setBanDialog(null);
+    setBanReason("");
     setNotice("");
   };
 
@@ -141,6 +146,101 @@ function App() {
     }
   };
 
+  const openBanDialog = (account) => {
+    setBanDialog(account);
+    setBanReason(account.ly_do_cam || "");
+    setNotice("");
+  };
+
+  const closeBanDialog = () => {
+    if (banSubmitting) return;
+    setBanDialog(null);
+    setBanReason("");
+  };
+
+  const submitBanAccount = async (e) => {
+    e.preventDefault();
+
+    if (!banDialog) return;
+
+    const reason = banReason.trim();
+    if (!reason) {
+      setNotice("Vui lòng nhập lý do cấm tài khoản.");
+      return;
+    }
+
+    setBanSubmitting(true);
+    setNotice("");
+
+    try {
+      const res = await axios.put(
+        `${API}/auth/ban-account/${banDialog.loai_tai_khoan}/${banDialog.id}`,
+        { ly_do_cam: reason },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const bannedData = { trang_thai: "bi_cam", ly_do_cam: reason };
+
+      setPendingAccounts((prev) =>
+        prev.filter(
+          (item) => !(item.id === banDialog.id && item.loai_tai_khoan === banDialog.loai_tai_khoan)
+        )
+      );
+
+      if (banDialog.loai_tai_khoan === "to_chuc") {
+        setAdminOrganizations((prev) =>
+          prev.map((item) =>
+            item.ma_to_chuc === banDialog.id ? { ...item, ...bannedData } : item
+          )
+        );
+      } else {
+        setAdminMembers((prev) =>
+          prev.map((item) =>
+            item.ma_thanh_vien === banDialog.id ? { ...item, ...bannedData } : item
+          )
+        );
+      }
+
+      setNotice(res.data.message || "Đã cấm tài khoản.");
+      setBanDialog(null);
+      setBanReason("");
+    } catch (err) {
+      setNotice(err.response?.data?.message || "Không thể cấm tài khoản.");
+    } finally {
+      setBanSubmitting(false);
+    }
+  };
+
+  const unbanAccount = async (account) => {
+    setNotice("");
+
+    try {
+      const res = await axios.put(
+        `${API}/auth/unban-account/${account.loai_tai_khoan}/${account.id}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const approvedData = { trang_thai: "da_duyet", ly_do_cam: null };
+
+      if (account.loai_tai_khoan === "to_chuc") {
+        setAdminOrganizations((prev) =>
+          prev.map((item) =>
+            item.ma_to_chuc === account.id ? { ...item, ...approvedData } : item
+          )
+        );
+      } else {
+        setAdminMembers((prev) =>
+          prev.map((item) =>
+            item.ma_thanh_vien === account.id ? { ...item, ...approvedData } : item
+          )
+        );
+      }
+
+      setNotice(res.data.message || "Đã bỏ cấm tài khoản.");
+    } catch (err) {
+      setNotice(err.response?.data?.message || "Không thể bỏ cấm tài khoản.");
+    }
+  };
+
   if (!token) {
     return <AuthForm onLoginSuccess={handleLoginSuccess} />;
   }
@@ -174,12 +274,25 @@ function App() {
           onSelectView={setActiveAdminView}
           onReload={loadAdminData}
           onReloadPending={loadPendingAccounts}
+          onOpenBanDialog={openBanDialog}
+          onUnbanAccount={unbanAccount}
           onUpdateStatus={updateAccountStatus}
         />
       ) : accountType === "to_chuc" ? (
         <OrganizationPage user={currentUser} />
       ) : (
         <MemberPage user={currentUser} />
+      )}
+
+      {banDialog && (
+        <BanAccountDialog
+          account={banDialog}
+          reason={banReason}
+          submitting={banSubmitting}
+          onChangeReason={setBanReason}
+          onClose={closeBanDialog}
+          onSubmit={submitBanAccount}
+        />
       )}
     </div>
   );
@@ -194,6 +307,8 @@ function AdminDashboard({
   onSelectView,
   onReload,
   onReloadPending,
+  onOpenBanDialog,
+  onUnbanAccount,
   onUpdateStatus,
 }) {
   const views = [
@@ -243,12 +358,20 @@ function AdminDashboard({
       </section>
 
       {activeView === "members" ? (
-        <AdminMembersTable members={members} loading={loading} onReload={onReload} />
+        <AdminMembersTable
+          members={members}
+          loading={loading}
+          onReload={onReload}
+          onOpenBanDialog={onOpenBanDialog}
+          onUnbanAccount={onUnbanAccount}
+        />
       ) : activeView === "organizations" ? (
         <AdminOrganizationsTable
           organizations={organizations}
           loading={loading}
           onReload={onReload}
+          onOpenBanDialog={onOpenBanDialog}
+          onUnbanAccount={onUnbanAccount}
         />
       ) : (
         <AdminPendingAccounts
@@ -262,7 +385,7 @@ function AdminDashboard({
   );
 }
 
-function AdminMembersTable({ members, loading, onReload }) {
+function AdminMembersTable({ members, loading, onReload, onOpenBanDialog, onUnbanAccount }) {
   return (
     <section style={styles.section}>
       <div style={styles.sectionHeader}>
@@ -294,6 +417,8 @@ function AdminMembersTable({ members, loading, onReload }) {
                 <th style={styles.th}>Ngân hàng</th>
                 <th style={styles.th}>Phí nợ</th>
                 <th style={styles.th}>Trạng thái</th>
+                <th style={styles.th}>Lý do cấm</th>
+                <th style={styles.th}>Thao tác</th>
               </tr>
             </thead>
             <tbody>
@@ -311,6 +436,38 @@ function AdminMembersTable({ members, loading, onReload }) {
                   <td style={styles.td}>
                     <span style={getStatusStyle(member.trang_thai)}>{getStatusLabel(member.trang_thai)}</span>
                   </td>
+                  <td style={{ ...styles.td, ...styles.longTextCell }}>{member.ly_do_cam || "-"}</td>
+                  <td style={styles.td}>
+                    {member.trang_thai === "bi_cam" ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUnbanAccount({
+                            id: member.ma_thanh_vien,
+                            loai_tai_khoan: "thanh_vien",
+                          })
+                        }
+                        style={styles.unbanButton}
+                      >
+                        Bỏ cấm
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenBanDialog({
+                            id: member.ma_thanh_vien,
+                            ten_hien_thi: member.ho_ten,
+                            loai_tai_khoan: "thanh_vien",
+                            ly_do_cam: member.ly_do_cam,
+                          })
+                        }
+                        style={styles.banButton}
+                      >
+                        Cấm
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -321,7 +478,7 @@ function AdminMembersTable({ members, loading, onReload }) {
   );
 }
 
-function AdminOrganizationsTable({ organizations, loading, onReload }) {
+function AdminOrganizationsTable({ organizations, loading, onReload, onOpenBanDialog, onUnbanAccount }) {
   return (
     <section style={styles.section}>
       <div style={styles.sectionHeader}>
@@ -350,6 +507,8 @@ function AdminOrganizationsTable({ organizations, loading, onReload }) {
                 <th style={styles.th}>Địa chỉ</th>
                 <th style={styles.th}>Mô tả</th>
                 <th style={styles.th}>Trạng thái</th>
+                <th style={styles.th}>Lý do cấm</th>
+                <th style={styles.th}>Thao tác</th>
               </tr>
             </thead>
             <tbody>
@@ -365,6 +524,38 @@ function AdminOrganizationsTable({ organizations, loading, onReload }) {
                     <span style={getStatusStyle(organization.trang_thai)}>
                       {getStatusLabel(organization.trang_thai)}
                     </span>
+                  </td>
+                  <td style={{ ...styles.td, ...styles.longTextCell }}>{organization.ly_do_cam || "-"}</td>
+                  <td style={styles.td}>
+                    {organization.trang_thai === "bi_cam" ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUnbanAccount({
+                            id: organization.ma_to_chuc,
+                            loai_tai_khoan: "to_chuc",
+                          })
+                        }
+                        style={styles.unbanButton}
+                      >
+                        Bỏ cấm
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenBanDialog({
+                            id: organization.ma_to_chuc,
+                            ten_hien_thi: organization.ten_to_chuc,
+                            loai_tai_khoan: "to_chuc",
+                            ly_do_cam: organization.ly_do_cam,
+                          })
+                        }
+                        style={styles.banButton}
+                      >
+                        Cấm
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -442,6 +633,49 @@ function AdminPendingAccounts({ pendingAccounts, loadingPending, onReload, onUpd
   );
 }
 
+function BanAccountDialog({ account, reason, submitting, onChangeReason, onClose, onSubmit }) {
+  return (
+    <div style={styles.modalOverlay} role="presentation">
+      <form style={styles.modal} onSubmit={onSubmit} role="dialog" aria-modal="true" aria-labelledby="ban-title">
+        <div style={styles.modalHeader}>
+          <h2 id="ban-title" style={styles.modalTitle}>
+            Cấm tài khoản {getRoleLabel(account.loai_tai_khoan).toLowerCase()}
+          </h2>
+          <button type="button" onClick={onClose} style={styles.closeButton} aria-label="Đóng">
+            ×
+          </button>
+        </div>
+
+        <p style={styles.modalDescription}>
+          Nhập lý do cấm tài khoản <strong>{account.ten_hien_thi}</strong>. Người dùng sẽ thấy lý do này khi đăng nhập.
+        </p>
+
+        <label style={styles.reasonField}>
+          <span style={styles.reasonLabel}>Lý do cấm</span>
+          <textarea
+            value={reason}
+            onChange={(e) => onChangeReason(e.target.value)}
+            style={styles.reasonInput}
+            placeholder="Ví dụ: Vi phạm quy định đăng bán sản phẩm..."
+            rows={5}
+            required
+            autoFocus
+          />
+        </label>
+
+        <div style={styles.modalActions}>
+          <button type="button" onClick={onClose} style={styles.secondaryButton} disabled={submitting}>
+            Hủy
+          </button>
+          <button type="submit" style={styles.confirmBanButton} disabled={submitting}>
+            {submitting ? "Đang cấm..." : "Cấm tài khoản"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function getHeaderSubtitle(role, accountType) {
   if (role === "admin") return "Trang admin duyệt tài khoản thành viên và tổ chức";
   if (accountType === "to_chuc") return "Trang làm việc dành riêng cho tổ chức";
@@ -481,6 +715,7 @@ function getStatusLabel(status) {
   if (status === "da_duyet") return "Đã duyệt";
   if (status === "tu_choi") return "Từ chối";
   if (status === "cho_duyet") return "Chờ duyệt";
+  if (status === "bi_cam") return "Bị cấm";
   return status || "-";
 }
 
@@ -491,6 +726,10 @@ function getStatusStyle(status) {
 
   if (status === "tu_choi") {
     return { ...styles.statusBadge, ...styles.statusRejected };
+  }
+
+  if (status === "bi_cam") {
+    return { ...styles.statusBadge, ...styles.statusBanned };
   }
 
   return { ...styles.statusBadge, ...styles.statusPending };
@@ -684,9 +923,114 @@ const styles = {
     fontWeight: 600,
     padding: "8px 10px",
   },
+  banButton: {
+    border: "none",
+    borderRadius: 6,
+    backgroundColor: "#b91c1c",
+    color: "#fff",
+    cursor: "pointer",
+    fontWeight: 600,
+    padding: "8px 10px",
+    whiteSpace: "nowrap",
+  },
+  unbanButton: {
+    border: "none",
+    borderRadius: 6,
+    backgroundColor: "#008a73",
+    color: "#fff",
+    cursor: "pointer",
+    fontWeight: 600,
+    padding: "8px 10px",
+    whiteSpace: "nowrap",
+  },
+  confirmBanButton: {
+    border: "none",
+    borderRadius: 6,
+    backgroundColor: "#b91c1c",
+    color: "#fff",
+    cursor: "pointer",
+    fontWeight: 700,
+    padding: "10px 12px",
+  },
   empty: {
     color: "#4b5563",
     margin: 0,
+  },
+  modalOverlay: {
+    alignItems: "center",
+    backgroundColor: "rgba(15, 23, 42, 0.45)",
+    display: "flex",
+    inset: 0,
+    justifyContent: "center",
+    padding: 24,
+    position: "fixed",
+    zIndex: 20,
+  },
+  modal: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    boxShadow: "0 24px 80px rgba(15, 23, 42, 0.28)",
+    maxWidth: 520,
+    padding: 22,
+    width: "100%",
+  },
+  modalHeader: {
+    alignItems: "center",
+    display: "flex",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  modalTitle: {
+    fontSize: 22,
+    margin: 0,
+  },
+  closeButton: {
+    alignItems: "center",
+    backgroundColor: "#f3f4f6",
+    border: "1px solid #e5e7eb",
+    borderRadius: 6,
+    color: "#111827",
+    cursor: "pointer",
+    display: "inline-flex",
+    fontSize: 22,
+    height: 34,
+    justifyContent: "center",
+    lineHeight: 1,
+    width: 34,
+  },
+  modalDescription: {
+    color: "#4b5563",
+    lineHeight: 1.5,
+    margin: "12px 0 16px",
+  },
+  reasonField: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  reasonLabel: {
+    color: "#374151",
+    fontSize: 14,
+    fontWeight: 700,
+  },
+  reasonInput: {
+    border: "1px solid #d1d5db",
+    borderRadius: 8,
+    boxSizing: "border-box",
+    color: "#111827",
+    font: "inherit",
+    lineHeight: 1.45,
+    minHeight: 118,
+    outline: "none",
+    padding: 12,
+    resize: "vertical",
+    width: "100%",
+  },
+  modalActions: {
+    display: "flex",
+    gap: 10,
+    justifyContent: "flex-end",
+    marginTop: 18,
   },
   statusBadge: {
     borderRadius: 999,
@@ -707,6 +1051,10 @@ const styles = {
   statusRejected: {
     backgroundColor: "#fee2e2",
     color: "#991b1b",
+  },
+  statusBanned: {
+    backgroundColor: "#111827",
+    color: "#fff",
   },
 };
 
