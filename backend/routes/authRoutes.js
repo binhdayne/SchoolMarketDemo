@@ -9,6 +9,8 @@ router.get("/members", authMiddleware, isAdmin, auth.getMembers);
 router.get("/organizations", authMiddleware, isAdmin, auth.getOrganizations);
 router.put("/approve-account/:type/:id", authMiddleware, isAdmin, auth.approveAccount);
 router.put("/reject-account/:type/:id", authMiddleware, isAdmin, auth.rejectAccount);
+router.put("/ban-account/:type/:id", authMiddleware, isAdmin, auth.banAccount);
+router.put("/unban-account/:type/:id", authMiddleware, isAdmin, auth.unbanAccount);
 router.get("/pending-users", authMiddleware, isAdmin, auth.getPendingUsers);
 router.put("/approve-user/:id", authMiddleware, isAdmin, auth.approveUser);
 router.put("/reject-user/:id", authMiddleware, isAdmin, auth.rejectUser);

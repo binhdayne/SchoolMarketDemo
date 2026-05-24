@@ -18,6 +18,7 @@ CREATE TABLE thanh_vien (
     ten_ngan_hang VARCHAR(100),
     vai_tro VARCHAR(50),
     trang_thai VARCHAR(50),
+    ly_do_cam TEXT,
     so_tien_phi_no DECIMAL(12,2) DEFAULT 0
 );
 
@@ -29,7 +30,8 @@ CREATE TABLE to_chuc (
     sdt VARCHAR(20) UNIQUE,
     dia_chi VARCHAR(255),
     mo_ta TEXT,
-    trang_thai VARCHAR(50)
+    trang_thai VARCHAR(50),
+    ly_do_cam TEXT
 );
 
 CREATE TABLE nguoi_kiem_duyet (
