@@ -5,6 +5,8 @@ const { auth: authMiddleware, isAdmin } = require("../middleware/authMiddleware"
 router.post("/register", auth.register);
 router.post("/login", auth.login);
 router.get("/pending-accounts", authMiddleware, isAdmin, auth.getPendingAccounts);
+router.get("/members", authMiddleware, isAdmin, auth.getMembers);
+router.get("/organizations", authMiddleware, isAdmin, auth.getOrganizations);
 router.put("/approve-account/:type/:id", authMiddleware, isAdmin, auth.approveAccount);
 router.put("/reject-account/:type/:id", authMiddleware, isAdmin, auth.rejectAccount);
 router.get("/pending-users", authMiddleware, isAdmin, auth.getPendingUsers);

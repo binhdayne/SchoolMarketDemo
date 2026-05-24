@@ -19,10 +19,15 @@ const memberColumns = `
     ho_ten,
     sdt,
     email,
+    dia_chi,
     lop,
     ngay_sinh,
+    ma_ngan_hang,
+    so_tai_khoan,
+    ten_ngan_hang,
     vai_tro,
-    trang_thai
+    trang_thai,
+    so_tien_phi_no
 `;
 
 const organizationColumns = `
@@ -30,6 +35,8 @@ const organizationColumns = `
     ten_to_chuc,
     sdt,
     email,
+    dia_chi,
+    mo_ta,
     trang_thai
 `;
 
@@ -282,6 +289,34 @@ exports.getPendingUsers = async (req, res) => {
         res.json(members);
     } catch (err) {
         res.status(500).json({ message: "Không thể lấy danh sách chờ duyệt", error: err.message });
+    }
+};
+
+exports.getMembers = async (req, res) => {
+    try {
+        const [members] = await promiseDb.query(
+            `SELECT ${memberColumns}
+             FROM thanh_vien
+             ORDER BY ma_thanh_vien DESC`
+        );
+
+        res.json(members);
+    } catch (err) {
+        res.status(500).json({ message: "Không thể lấy danh sách thành viên", error: err.message });
+    }
+};
+
+exports.getOrganizations = async (req, res) => {
+    try {
+        const [organizations] = await promiseDb.query(
+            `SELECT ${organizationColumns}
+             FROM to_chuc
+             ORDER BY ma_to_chuc DESC`
+        );
+
+        res.json(organizations);
+    } catch (err) {
+        res.status(500).json({ message: "Không thể lấy danh sách tổ chức", error: err.message });
     }
 };
 
