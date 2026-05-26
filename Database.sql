@@ -29,6 +29,7 @@ CREATE TABLE to_chuc (
     email VARCHAR(100) UNIQUE NOT NULL,
     sdt VARCHAR(20) UNIQUE,
     dia_chi VARCHAR(255),
+    avatar LONGTEXT,
     mo_ta TEXT,
     trang_thai VARCHAR(50),
     ly_do_cam TEXT
@@ -59,6 +60,8 @@ CREATE TABLE hoat_dong_quyen_gop (
     trang_thai VARCHAR(50),
     ma_to_chuc INT,
     han_ket_thuc DATETIME,
+    anh_minh_hoa LONGTEXT,
+    hinh_thuc_quyen_gop VARCHAR(50),
 
     FOREIGN KEY (ma_to_chuc) REFERENCES to_chuc(ma_to_chuc)
         ON DELETE SET NULL

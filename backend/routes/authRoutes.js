@@ -1,12 +1,13 @@
 const router = require("express").Router();
 const auth = require("../controllers/authController");
-const { auth: authMiddleware, isAdmin } = require("../middleware/authMiddleware");
+const { auth: authMiddleware, isAdmin, isOrganization } = require("../middleware/authMiddleware");
 
 router.post("/register", auth.register);
 router.post("/login", auth.login);
 router.get("/pending-accounts", authMiddleware, isAdmin, auth.getPendingAccounts);
 router.get("/members", authMiddleware, isAdmin, auth.getMembers);
 router.get("/organizations", authMiddleware, isAdmin, auth.getOrganizations);
+router.put("/organization-profile", authMiddleware, isOrganization, auth.updateOrganizationProfile);
 router.put("/approve-account/:type/:id", authMiddleware, isAdmin, auth.approveAccount);
 router.put("/reject-account/:type/:id", authMiddleware, isAdmin, auth.rejectAccount);
 router.put("/ban-account/:type/:id", authMiddleware, isAdmin, auth.banAccount);
