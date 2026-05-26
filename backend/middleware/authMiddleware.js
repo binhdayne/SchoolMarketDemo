@@ -24,4 +24,14 @@ const isAdmin = (req, res, next) => {
     next();
 };
 
-module.exports = { auth, isAdmin };
+const isOrganization = (req, res, next) => {
+    const accountType = req.user?.accountType || req.user?.role;
+
+    if (accountType !== "to_chuc") {
+        return res.status(403).json({ message: "Access denied: Organizations only" });
+    }
+
+    next();
+};
+
+module.exports = { auth, isAdmin, isOrganization };

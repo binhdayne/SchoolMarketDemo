@@ -3,6 +3,8 @@ import axios from "axios";
 import AuthForm from "./components/AuthForm";
 import MemberPage from "./pages/MemberPage";
 import OrganizationPage from "./pages/OrganizationPage";
+import LandingPage from "./LandingPage";
+import PostProductPage from "./pages/PostProductPage";
 
 const API = "http://localhost:5000/api";
 
@@ -16,7 +18,13 @@ function decodeToken(token) {
 }
 
 function App() {
+  const [view, setView] = useState("dashboard");
+  const navigate = (page) => {
+    setView(page);
+  };
   const [token, setToken] = useState(localStorage.getItem("token"));
+  const [authMode, setAuthMode] = useState(null);
+
   const [currentUser, setCurrentUser] = useState(() => {
     const savedUser = localStorage.getItem("user");
     if (savedUser) return JSON.parse(savedUser);
@@ -33,6 +41,7 @@ function App() {
       : null;
   });
   const [pendingAccounts, setPendingAccounts] = useState([]);
+  const [pendingCampaigns, setPendingCampaigns] = useState([]);
   const [adminMembers, setAdminMembers] = useState([]);
   const [adminOrganizations, setAdminOrganizations] = useState([]);
   const [loadingAdminData, setLoadingAdminData] = useState(false);
@@ -41,6 +50,8 @@ function App() {
   const [banReason, setBanReason] = useState("");
   const [banSubmitting, setBanSubmitting] = useState(false);
   const [notice, setNotice] = useState("");
+  const [organizationManagerOpen, setOrganizationManagerOpen] = useState(false);
+  const [organizationEventCreatorOpen, setOrganizationEventCreatorOpen] = useState(false);
   const decodedToken = token ? decodeToken(token) : null;
   const role = currentUser?.vai_tro || decodedToken?.role;
   const accountType = currentUser?.loai_tai_khoan || decodedToken?.accountType || role;
@@ -53,15 +64,17 @@ function App() {
 
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [pendingRes, membersRes, organizationsRes] = await Promise.all([
+      const [pendingRes, membersRes, organizationsRes, pendingCampaignsRes] = await Promise.all([
         axios.get(`${API}/auth/pending-accounts`, { headers }),
         axios.get(`${API}/auth/members`, { headers }),
         axios.get(`${API}/auth/organizations`, { headers }),
+        axios.get(`${API}/campaigns/pending`, { headers }),
       ]);
 
       setPendingAccounts(pendingRes.data);
       setAdminMembers(membersRes.data);
       setAdminOrganizations(organizationsRes.data);
+      setPendingCampaigns(pendingCampaignsRes.data);
     } catch (err) {
       setNotice(err.response?.data?.message || "Không thể tải dữ liệu trang admin.");
     } finally {
@@ -87,6 +100,24 @@ function App() {
     }
   }, [role, token]);
 
+  const loadPendingCampaigns = useCallback(async () => {
+    if (!token || role !== "admin") return;
+
+    setLoadingAdminData(true);
+    setNotice("");
+
+    try {
+      const res = await axios.get(`${API}/campaigns/pending`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setPendingCampaigns(res.data);
+    } catch (err) {
+      setNotice(err.response?.data?.message || "Không thể tải danh sách sự kiện chờ duyệt.");
+    } finally {
+      setLoadingAdminData(false);
+    }
+  }, [role, token]);
+
   useEffect(() => {
     loadAdminData();
   }, [loadAdminData]);
@@ -96,6 +127,17 @@ function App() {
     localStorage.setItem("user", JSON.stringify(user));
     setToken(newToken);
     setCurrentUser(user);
+    setOrganizationManagerOpen(false);
+    setOrganizationEventCreatorOpen(false);
+    setAuthMode(null);
+    setView("dashboard");
+  };
+
+  const handleOrganizationProfileUpdate = (updatedUser) => {
+    const nextUser = { ...currentUser, ...updatedUser };
+
+    localStorage.setItem("user", JSON.stringify(nextUser));
+    setCurrentUser(nextUser);
   };
 
   const handleLogout = () => {
@@ -104,12 +146,17 @@ function App() {
     setToken(null);
     setCurrentUser(null);
     setPendingAccounts([]);
+    setPendingCampaigns([]);
     setAdminMembers([]);
     setAdminOrganizations([]);
     setActiveAdminView("pending");
     setBanDialog(null);
     setBanReason("");
     setNotice("");
+    setOrganizationManagerOpen(false);
+    setOrganizationEventCreatorOpen(false);
+    setAuthMode(null);
+    setView("dashboard");
   };
 
   const updateAccountStatus = async (account, action) => {
@@ -143,6 +190,24 @@ function App() {
       setNotice(res.data.message);
     } catch (err) {
       setNotice(err.response?.data?.message || "Không thể cập nhật tài khoản.");
+    }
+  };
+
+  const updateCampaignStatus = async (campaign, action) => {
+    try {
+      const endpoint = action === "approve" ? "approve" : "reject";
+      const res = await axios.put(
+        `${API}/campaigns/${campaign.ma_hoat_dong}/${endpoint}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setPendingCampaigns((prev) =>
+        prev.filter((item) => item.ma_hoat_dong !== campaign.ma_hoat_dong)
+      );
+      setNotice(res.data.message);
+    } catch (err) {
+      setNotice(err.response?.data?.message || "Không thể cập nhật sự kiện quyên góp.");
     }
   };
 
@@ -242,7 +307,26 @@ function App() {
   };
 
   if (!token) {
-    return <AuthForm onLoginSuccess={handleLoginSuccess} />;
+    if (authMode) {
+      return (
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => setAuthMode(null)}
+            style={{ position: 'absolute', top: 20, left: 20, zIndex: 10, padding: '8px 16px', borderRadius: 8, border: '1px solid #ccc', background: 'white', cursor: 'pointer', fontWeight: 600 }}
+          >
+            ← Quay lại trang chủ
+          </button>
+
+          <AuthForm initialMode={authMode} onLoginSuccess={handleLoginSuccess} />
+        </div>
+      );
+    }
+    return (
+      <LandingPage
+        onLoginClick={() => setAuthMode('login')}
+        onRegisterClick={() => setAuthMode('register')}
+      />
+    );
   }
 
   return (
@@ -255,8 +339,50 @@ function App() {
             <p style={styles.subtitle}>{getHeaderSubtitle(role, accountType)}</p>
           </div>
         </div>
+        <div style={styles.headerCenter}>
+          {accountType === "to_chuc" && (
+            <button
+              type="button"
+              onClick={() => {
+                if (organizationEventCreatorOpen) {
+                  setOrganizationEventCreatorOpen(false);
+                  setOrganizationManagerOpen(false);
+                } else {
+                  setOrganizationManagerOpen(false);
+                  setOrganizationEventCreatorOpen(true);
+                }
+              }}
+              style={styles.createEventButton}
+            >
+              {organizationEventCreatorOpen ? "Về trang chủ" : "Tạo sự kiện quyên góp"}
+            </button>
+          )}
+        </div>
         <div style={styles.account}>
+          {accountType === "to_chuc" && (
+            <img
+              src={currentUser?.avatar || "/images/school-market-icon-v2.png"}
+              alt="Avatar tổ chức"
+              style={styles.organizationAvatar}
+              onError={(event) => {
+                event.currentTarget.onerror = null;
+                event.currentTarget.src = "/images/school-market-icon-v2.png";
+              }}
+            />
+          )}
           <span style={styles.accountName}>{getDisplayName(currentUser)}</span>
+          {accountType === "to_chuc" && (
+            <button
+              type="button"
+              onClick={() => {
+                setOrganizationEventCreatorOpen(false);
+                setOrganizationManagerOpen((isOpen) => !isOpen);
+              }}
+              style={styles.manageOrgButton}
+            >
+              {organizationManagerOpen ? "Về trang chủ" : "Quản lý tài khoản"}
+            </button>
+          )}
           <span style={styles.roleBadge}>{getRoleLabel(accountType)}</span>
           <button onClick={handleLogout} style={styles.logoutButton}>Đăng xuất</button>
         </div>
@@ -267,6 +393,7 @@ function App() {
       {role === "admin" ? (
         <AdminDashboard
           pendingAccounts={pendingAccounts}
+          pendingCampaigns={pendingCampaigns}
           members={adminMembers}
           organizations={adminOrganizations}
           activeView={activeAdminView}
@@ -274,14 +401,34 @@ function App() {
           onSelectView={setActiveAdminView}
           onReload={loadAdminData}
           onReloadPending={loadPendingAccounts}
+          onReloadCampaigns={loadPendingCampaigns}
           onOpenBanDialog={openBanDialog}
           onUnbanAccount={unbanAccount}
           onUpdateStatus={updateAccountStatus}
+          onUpdateCampaignStatus={updateCampaignStatus}
         />
       ) : accountType === "to_chuc" ? (
-        <OrganizationPage user={currentUser} />
+        <OrganizationPage
+          user={currentUser}
+          token={token}
+          managerOpen={organizationManagerOpen}
+          eventCreatorOpen={organizationEventCreatorOpen}
+          onCloseManager={() => setOrganizationManagerOpen(false)}
+          onCloseEventCreator={() => setOrganizationEventCreatorOpen(false)}
+          onProfileUpdated={handleOrganizationProfileUpdate}
+        />
+      ) : view === "dashboard" ? (
+        <MemberPage
+          user={currentUser}
+          token={token}
+          navigate={navigate}
+          onLogout={handleLogout}
+        />
       ) : (
-        <MemberPage user={currentUser} />
+        <PostProductPage
+          navigate={navigate}
+          token={token}
+        />
       )}
 
       {banDialog && (
@@ -300,6 +447,7 @@ function App() {
 
 function AdminDashboard({
   pendingAccounts,
+  pendingCampaigns,
   members,
   organizations,
   activeView,
@@ -307,9 +455,11 @@ function AdminDashboard({
   onSelectView,
   onReload,
   onReloadPending,
+  onReloadCampaigns,
   onOpenBanDialog,
   onUnbanAccount,
   onUpdateStatus,
+  onUpdateCampaignStatus,
 }) {
   const views = [
     {
@@ -329,6 +479,12 @@ function AdminDashboard({
       title: "Chờ duyệt",
       count: pendingAccounts.length,
       description: "Duyệt hoặc từ chối tài khoản mới đăng ký.",
+    },
+    {
+      key: "campaigns",
+      title: "Sự kiện",
+      count: pendingCampaigns.length,
+      description: "Duyệt hoặc từ chối sự kiện quyên góp của tổ chức.",
     },
   ];
 
@@ -372,6 +528,13 @@ function AdminDashboard({
           onReload={onReload}
           onOpenBanDialog={onOpenBanDialog}
           onUnbanAccount={onUnbanAccount}
+        />
+      ) : activeView === "campaigns" ? (
+        <AdminPendingCampaigns
+          campaigns={pendingCampaigns}
+          loading={loading}
+          onReload={onReloadCampaigns}
+          onUpdateStatus={onUpdateCampaignStatus}
         />
       ) : (
         <AdminPendingAccounts
@@ -633,6 +796,82 @@ function AdminPendingAccounts({ pendingAccounts, loadingPending, onReload, onUpd
   );
 }
 
+function AdminPendingCampaigns({ campaigns, loading, onReload, onUpdateStatus }) {
+  return (
+    <section style={styles.section}>
+      <div style={styles.sectionHeader}>
+        <div>
+          <h2 style={styles.sectionTitle}>Sự kiện quyên góp chờ duyệt</h2>
+          <p style={styles.sectionDescription}>Các sự kiện tổ chức tạo cần admin kiểm tra trước khi hiển thị.</p>
+        </div>
+        <button onClick={onReload} style={styles.secondaryButton}>
+          Tải lại
+        </button>
+      </div>
+
+      {loading ? (
+        <p style={styles.empty}>Đang tải danh sách...</p>
+      ) : campaigns.length === 0 ? (
+        <p style={styles.empty}>Không có sự kiện nào đang chờ duyệt.</p>
+      ) : (
+        <div style={styles.tableWrap}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Ảnh</th>
+                <th style={styles.th}>Tên sự kiện</th>
+                <th style={styles.th}>Tổ chức</th>
+                <th style={styles.th}>Mô tả</th>
+                <th style={styles.th}>Ngày tổ chức</th>
+                <th style={styles.th}>Hạn kết thúc</th>
+                <th style={styles.th}>Hình thức</th>
+                <th style={styles.th}>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {campaigns.map((campaign) => (
+                <tr key={campaign.ma_hoat_dong}>
+                  <td style={styles.td}>
+                    <img
+                      src={campaign.anh_minh_hoa || "/images/school-market-icon-v2.png"}
+                      alt=""
+                      style={styles.campaignThumb}
+                    />
+                  </td>
+                  <td style={styles.td}>{campaign.ten_hoat_dong}</td>
+                  <td style={styles.td}>{campaign.ten_to_chuc || "-"}</td>
+                  <td style={{ ...styles.td, ...styles.longTextCell }}>{campaign.mo_ta || "-"}</td>
+                  <td style={styles.td}>{campaign.ngay_to_chuc ? formatDate(campaign.ngay_to_chuc) : "-"}</td>
+                  <td style={styles.td}>{campaign.han_ket_thuc ? formatDate(campaign.han_ket_thuc) : "-"}</td>
+                  <td style={styles.td}>{getDonationTypeLabel(campaign.hinh_thuc_quyen_gop)}</td>
+                  <td style={styles.td}>
+                    <div style={styles.actions}>
+                      <button
+                        type="button"
+                        onClick={() => onUpdateStatus(campaign, "approve")}
+                        style={styles.approveButton}
+                      >
+                        Duyệt
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onUpdateStatus(campaign, "reject")}
+                        style={styles.rejectButton}
+                      >
+                        Từ chối
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function BanAccountDialog({ account, reason, submitting, onChangeReason, onClose, onSubmit }) {
   return (
     <div style={styles.modalOverlay} role="presentation">
@@ -711,6 +950,13 @@ function formatBankInfo(member) {
   return parts.length > 0 ? parts.join(" - ") : "-";
 }
 
+function getDonationTypeLabel(type) {
+  if (type === "nhan_tien_chuyen_khoan") return "Nhận tiền chuyển khoản";
+  if (type === "ban_do_quyen_gop") return "Bán đồ quyên góp";
+  if (type === "nhan_do_vat") return "Nhận đồ vật";
+  return type || "-";
+}
+
 function getStatusLabel(status) {
   if (status === "da_duyet") return "Đã duyệt";
   if (status === "tu_choi") return "Từ chối";
@@ -743,8 +989,8 @@ const styles = {
     padding: 24,
   },
   header: {
-    display: "flex",
-    justifyContent: "space-between",
+    display: "grid",
+    gridTemplateColumns: "minmax(280px, 1fr) auto minmax(280px, 1fr)",
     alignItems: "center",
     gap: 16,
     marginBottom: 20,
@@ -769,6 +1015,20 @@ const styles = {
     margin: "6px 0 0",
     color: "#4b5563",
   },
+  headerCenter: {
+    display: "flex",
+    justifyContent: "center",
+  },
+  createEventButton: {
+    border: "none",
+    borderRadius: 6,
+    backgroundColor: "#047857",
+    color: "#fff",
+    cursor: "pointer",
+    fontWeight: 700,
+    padding: "10px 14px",
+    whiteSpace: "nowrap",
+  },
   account: {
     display: "flex",
     alignItems: "center",
@@ -776,8 +1036,25 @@ const styles = {
     flexWrap: "wrap",
     justifyContent: "flex-end",
   },
+  organizationAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    border: "2px solid #d1fae5",
+    objectFit: "cover",
+    backgroundColor: "#ecfdf5",
+  },
   accountName: {
     fontWeight: 600,
+  },
+  manageOrgButton: {
+    border: "1px solid #008a73",
+    borderRadius: 6,
+    backgroundColor: "#fff",
+    color: "#006f5c",
+    cursor: "pointer",
+    fontWeight: 700,
+    padding: "8px 12px",
   },
   roleBadge: {
     backgroundColor: "#e6f6f1",
@@ -899,6 +1176,12 @@ const styles = {
   longTextCell: {
     maxWidth: 280,
     whiteSpace: "normal",
+  },
+  campaignThumb: {
+    borderRadius: 6,
+    height: 54,
+    objectFit: "cover",
+    width: 76,
   },
   actions: {
     display: "flex",

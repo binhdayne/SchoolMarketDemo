@@ -66,6 +66,39 @@ function getBannedMessage(accountType, reason) {
     return `Tài khoản ${label} này đã bị quản trị viên cấm với lý do: ${displayReason}`;
 }
 
+let organizationAvatarColumnReady = false;
+
+async function ensureOrganizationAvatarColumn() {
+    if (organizationAvatarColumnReady) return;
+
+    try {
+        await promiseDb.query("ALTER TABLE to_chuc ADD COLUMN avatar LONGTEXT NULL AFTER dia_chi");
+    } catch (err) {
+        if (err.code !== "ER_DUP_FIELDNAME") {
+            throw err;
+        }
+    }
+
+    await promiseDb.query("ALTER TABLE to_chuc MODIFY COLUMN avatar LONGTEXT NULL");
+    organizationAvatarColumnReady = true;
+}
+
+function toOrganizationUser(organization) {
+    return {
+        id: organization.ma_to_chuc,
+        ten_to_chuc: organization.ten_to_chuc,
+        email: organization.email,
+        sdt: organization.sdt,
+        dia_chi: organization.dia_chi,
+        avatar: organization.avatar || "",
+        mo_ta: organization.mo_ta,
+        vai_tro: ACCOUNT_TYPE.ORGANIZATION,
+        loai_tai_khoan: ACCOUNT_TYPE.ORGANIZATION,
+        trang_thai: organization.trang_thai,
+        ly_do_cam: organization.ly_do_cam
+    };
+}
+
 exports.register = async (req, res) => {
     const loai_tai_khoan = req.body.loai_tai_khoan || ACCOUNT_TYPE.MEMBER;
     const { ho_ten, ten_to_chuc, sdt, email, lop, ngay_sinh } = req.body;
@@ -214,6 +247,8 @@ exports.login = async (req, res) => {
             });
         }
 
+        await ensureOrganizationAvatarColumn();
+
         const [organizations] = await promiseDb.query(
             "SELECT * FROM to_chuc WHERE email = ? OR sdt = ? LIMIT 1",
             [identifier, identifier]
@@ -252,15 +287,7 @@ exports.login = async (req, res) => {
 
         res.json({
             token,
-            user: {
-                id: organization.ma_to_chuc,
-                ten_to_chuc: organization.ten_to_chuc,
-                email: organization.email,
-                sdt: organization.sdt,
-                vai_tro: ACCOUNT_TYPE.ORGANIZATION,
-                loai_tai_khoan: ACCOUNT_TYPE.ORGANIZATION,
-                trang_thai: organization.trang_thai
-            }
+            user: toOrganizationUser(organization)
         });
     } catch (err) {
         res.status(500).json({ message: "Không thể đăng nhập", error: err.message });
@@ -344,6 +371,49 @@ exports.getOrganizations = async (req, res) => {
         res.json(organizations);
     } catch (err) {
         res.status(500).json({ message: "Không thể lấy danh sách tổ chức", error: err.message });
+    }
+};
+
+exports.updateOrganizationProfile = async (req, res) => {
+    const organizationId = req.user?.id;
+    const ten_to_chuc = String(req.body.ten_to_chuc || "").trim();
+    const avatar = String(req.body.avatar || "").trim();
+    const dia_chi = String(req.body.dia_chi || "").trim();
+    const mo_ta = String(req.body.mo_ta || "").trim();
+
+    if (!organizationId) {
+        return res.status(401).json({ message: "Không xác định được tài khoản tổ chức" });
+    }
+
+    if (!ten_to_chuc) {
+        return res.status(400).json({ message: "Vui lòng nhập tên tổ chức" });
+    }
+
+    try {
+        await ensureOrganizationAvatarColumn();
+
+        const [result] = await promiseDb.query(
+            `UPDATE to_chuc
+             SET ten_to_chuc = ?, avatar = ?, dia_chi = ?, mo_ta = ?
+             WHERE ma_to_chuc = ?`,
+            [ten_to_chuc, avatar || null, dia_chi || null, mo_ta || null, organizationId]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: "Không tìm thấy tài khoản tổ chức" });
+        }
+
+        const [organizations] = await promiseDb.query(
+            "SELECT * FROM to_chuc WHERE ma_to_chuc = ? LIMIT 1",
+            [organizationId]
+        );
+
+        res.json({
+            message: "Đã cập nhật tài khoản tổ chức",
+            user: toOrganizationUser(organizations[0])
+        });
+    } catch (err) {
+        res.status(500).json({ message: "Không thể cập nhật tài khoản tổ chức", error: err.message });
     }
 };
 
