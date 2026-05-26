@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
 import "./AuthForm.css";
 
@@ -16,12 +16,21 @@ const initialForm = {
   password: "",
 };
 
-function AuthForm({ onLoginSuccess }) {
-  const [mode, setMode] = useState("login");
+// 1. ĐÃ THÊM initialMode VÀO ĐÂY
+function AuthForm({ onLoginSuccess, initialMode }) {
+  // 2. SỬ DỤNG initialMode ĐỂ SET MẶC ĐỊNH
+  const [mode, setMode] = useState(initialMode || "login");
   const [form, setForm] = useState(initialForm);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // 3. THÊM ĐOẠN NÀY ĐỂ TỰ ĐỘNG LẮNG NGHE TÍN HIỆU CHUYỂN TAB
+  useEffect(() => {
+    if (initialMode) {
+      setMode(initialMode);
+    }
+  }, [initialMode]);
 
   const isLogin = mode === "login";
 

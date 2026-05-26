@@ -3,6 +3,8 @@ import axios from "axios";
 import AuthForm from "./components/AuthForm";
 import MemberPage from "./pages/MemberPage";
 import OrganizationPage from "./pages/OrganizationPage";
+import LandingPage from "./LandingPage";
+import PostProductPage from "./pages/PostProductPage";
 
 const API = "http://localhost:5000/api";
 
@@ -16,7 +18,13 @@ function decodeToken(token) {
 }
 
 function App() {
+  const [view, setView] = useState("dashboard");
+  const navigate = (page) => {
+  setView(page);
+};
   const [token, setToken] = useState(localStorage.getItem("token"));
+  const [authMode, setAuthMode] = useState(null);
+
   const [currentUser, setCurrentUser] = useState(() => {
     const savedUser = localStorage.getItem("user");
     if (savedUser) return JSON.parse(savedUser);
@@ -66,6 +74,7 @@ function App() {
     localStorage.setItem("user", JSON.stringify(user));
     setToken(newToken);
     setCurrentUser(user);
+    setAuthMode(null); // Đăng nhập xong thì tắt form
   };
 
   const handleLogout = () => {
@@ -75,6 +84,7 @@ function App() {
     setCurrentUser(null);
     setPendingAccounts([]);
     setNotice("");
+    setAuthMode(null); // Đăng xuất xong thì quay về Landing Page
   };
 
   const updateAccountStatus = async (account, action) => {
@@ -97,10 +107,32 @@ function App() {
     }
   };
 
+  // --- LOGIC HIỂN THỊ ĐÃ ĐƯỢC CẬP NHẬT Ở ĐÂY ---
   if (!token) {
-    return <AuthForm onLoginSuccess={handleLoginSuccess} />;
+    if (authMode) {
+      return (
+        <div style={{ position: 'relative' }}>
+          <button 
+            onClick={() => setAuthMode(null)} 
+            style={{ position: 'absolute', top: 20, left: 20, zIndex: 10, padding: '8px 16px', borderRadius: 8, border: '1px solid #ccc', background: 'white', cursor: 'pointer', fontWeight: 600 }}
+          >
+            ← Quay lại trang chủ
+          </button>
+          
+          {/* Truyền tín hiệu initialMode vào cho AuthForm */}
+          <AuthForm initialMode={authMode} onLoginSuccess={handleLoginSuccess} />
+        </div>
+      );
+    }
+    return (
+      <LandingPage 
+        onLoginClick={() => setAuthMode('login')} 
+        onRegisterClick={() => setAuthMode('register')} 
+      />
+    );
   }
 
+  // Nếu người dùng đã có token (đã đăng nhập) -> Hiện các trang chức năng
   return (
     <div style={styles.page}>
       <header style={styles.header}>
@@ -129,9 +161,22 @@ function App() {
         />
       ) : accountType === "to_chuc" ? (
         <OrganizationPage user={currentUser} />
-      ) : (
-        <MemberPage user={currentUser} />
-      )}
+      // Thay thế đoạn render MemberPage cũ bằng đoạn này:
+) : (
+  view === "dashboard" ? (
+    <MemberPage 
+      user={currentUser} 
+      token={token} 
+      navigate={navigate} 
+      onLogout={handleLogout} 
+    />
+  ) : (
+    <PostProductPage 
+      navigate={navigate} 
+      token={token} 
+    />
+  )
+)}
     </div>
   );
 }
