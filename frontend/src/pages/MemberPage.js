@@ -4,6 +4,8 @@ import './MemberPage.css';
 // Thêm 3 icon mới cho danh sách sản phẩm
 import { LuPackage, LuCheck, LuHeart, LuPlus, LuEye, LuPencil, LuTrash2, LuCreditCard, LuCalendar, LuPackage2 } from 'react-icons/lu';
 
+const API = 'http://localhost:5000/api';
+
 // Đã thêm prop 'token' vào đây
 export default function MemberPage({ user, token, onLogout, navigate }) {
   const [activeTab, setActiveTab] = useState("Sản phẩm của tôi");
@@ -15,19 +17,23 @@ export default function MemberPage({ user, token, onLogout, navigate }) {
 
   useEffect(() => {
     if (token) {
-      // Gọi API lấy thống kê
-      axios.get('http://localhost:5000/api/dashboard/member-stats', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      .then(res => setStats(res.data))
-      .catch(err => console.error("Lỗi tải thống kê:", err));
+      const headers = { 'Authorization': `Bearer ${token}` };
 
-      // Gọi API lấy danh sách sản phẩm
-      axios.get('http://localhost:5000/api/products/my-products', {
-        headers: { 'Authorization': `Bearer ${token}` }
+      Promise.all([
+        axios.get(`${API}/dashboard/member-stats`, { headers }),
+        axios.get(`${API}/products/my-products`, { headers })
+      ])
+      .then(([statsRes, productsRes]) => {
+        const products = Array.isArray(productsRes.data) ? productsRes.data : [];
+
+        setMyProducts(products);
+        setStats({
+          ...statsRes.data,
+          spDaDang: products.length,
+          quyenGop: products.filter(product => Number(product.so_phan_tram_quyen_gop || 0) > 0).length
+        });
       })
-      .then(res => setMyProducts(res.data))
-      .catch(err => console.error("Lỗi tải danh sách sản phẩm:", err));
+      .catch(err => console.error("Lỗi tải dữ liệu thành viên:", err));
     }
   }, [token]);
   // ------------------------------------
@@ -52,10 +58,12 @@ export default function MemberPage({ user, token, onLogout, navigate }) {
       });
 
       // Cập nhật lại UI
-      setMyProducts(myProducts.filter(product => product.ma_san_pham !== deleteModal.productId));
+      const nextProducts = myProducts.filter(product => product.ma_san_pham !== deleteModal.productId);
+      setMyProducts(nextProducts);
       setStats(prevStats => ({
         ...prevStats,
-        spDaDang: prevStats.spDaDang > 0 ? prevStats.spDaDang - 1 : 0
+        spDaDang: nextProducts.length,
+        quyenGop: nextProducts.filter(product => Number(product.so_phan_tram_quyen_gop || 0) > 0).length
       }));
 
       // Đóng popup

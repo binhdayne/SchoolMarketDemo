@@ -142,7 +142,10 @@ exports.getCampaigns = async (req, res) => {
     try {
         await ensureCampaignExtraColumns();
 
-        const [campaigns] = await promiseDb.query(getCampaignSelectSql());
+        const [campaigns] = await promiseDb.query(
+            getCampaignSelectSql("WHERE hd.trang_thai = ?"),
+            [CAMPAIGN_STATUS.APPROVED]
+        );
 
         res.json(campaigns);
     } catch (err) {

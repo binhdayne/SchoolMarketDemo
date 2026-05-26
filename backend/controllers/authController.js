@@ -67,6 +67,7 @@ function getBannedMessage(accountType, reason) {
 }
 
 let organizationAvatarColumnReady = false;
+let memberBankQrColumnReady = false;
 
 async function ensureOrganizationAvatarColumn() {
     if (organizationAvatarColumnReady) return;
@@ -81,6 +82,32 @@ async function ensureOrganizationAvatarColumn() {
 
     await promiseDb.query("ALTER TABLE to_chuc MODIFY COLUMN avatar LONGTEXT NULL");
     organizationAvatarColumnReady = true;
+}
+
+async function ensureMemberBankQrColumn() {
+    if (memberBankQrColumnReady) return;
+
+    await promiseDb.query("ALTER TABLE thanh_vien MODIFY COLUMN ma_ngan_hang LONGTEXT NULL");
+    memberBankQrColumnReady = true;
+}
+
+function toMemberUser(member) {
+    return {
+        id: member.ma_thanh_vien,
+        ho_ten: member.ho_ten,
+        email: member.email,
+        sdt: member.sdt,
+        dia_chi: member.dia_chi || "",
+        lop: member.lop,
+        ngay_sinh: member.ngay_sinh,
+        ma_ngan_hang: member.ma_ngan_hang || "",
+        so_tai_khoan: member.so_tai_khoan || "",
+        ten_ngan_hang: member.ten_ngan_hang || "",
+        vai_tro: member.vai_tro || ACCOUNT_TYPE.MEMBER,
+        loai_tai_khoan: ACCOUNT_TYPE.MEMBER,
+        trang_thai: member.trang_thai,
+        ly_do_cam: member.ly_do_cam
+    };
 }
 
 function toOrganizationUser(organization) {
@@ -198,6 +225,8 @@ exports.login = async (req, res) => {
             });
         }
 
+        await ensureMemberBankQrColumn();
+
         const [members] = await promiseDb.query(
             "SELECT * FROM thanh_vien WHERE email = ? OR sdt = ? LIMIT 1",
             [identifier, identifier]
@@ -233,17 +262,7 @@ exports.login = async (req, res) => {
 
             return res.json({
                 token,
-                user: {
-                    id: member.ma_thanh_vien,
-                    ho_ten: member.ho_ten,
-                    email: member.email,
-                    sdt: member.sdt,
-                    lop: member.lop,
-                    ngay_sinh: member.ngay_sinh,
-                    vai_tro: member.vai_tro || ACCOUNT_TYPE.MEMBER,
-                    loai_tai_khoan: ACCOUNT_TYPE.MEMBER,
-                    trang_thai: member.trang_thai
-                }
+                user: toMemberUser(member)
             });
         }
 
@@ -348,6 +367,8 @@ exports.getPendingUsers = async (req, res) => {
 
 exports.getMembers = async (req, res) => {
     try {
+        await ensureMemberBankQrColumn();
+
         const [members] = await promiseDb.query(
             `SELECT ${memberColumns}
              FROM thanh_vien
@@ -371,6 +392,78 @@ exports.getOrganizations = async (req, res) => {
         res.json(organizations);
     } catch (err) {
         res.status(500).json({ message: "Không thể lấy danh sách tổ chức", error: err.message });
+    }
+};
+
+exports.getMemberProfile = async (req, res) => {
+    const memberId = req.user?.id;
+    const accountType = req.user?.accountType || req.user?.role;
+
+    if (accountType !== ACCOUNT_TYPE.MEMBER) {
+        return res.status(403).json({ message: "Chỉ thành viên mới có thể quản lý tài khoản thành viên" });
+    }
+
+    try {
+        await ensureMemberBankQrColumn();
+
+        const [members] = await promiseDb.query(
+            "SELECT * FROM thanh_vien WHERE ma_thanh_vien = ? LIMIT 1",
+            [memberId]
+        );
+
+        if (members.length === 0) {
+            return res.status(404).json({ message: "Không tìm thấy tài khoản thành viên" });
+        }
+
+        res.json({ user: toMemberUser(members[0]) });
+    } catch (err) {
+        res.status(500).json({ message: "Không thể lấy thông tin tài khoản thành viên", error: err.message });
+    }
+};
+
+exports.updateMemberProfile = async (req, res) => {
+    const memberId = req.user?.id;
+    const accountType = req.user?.accountType || req.user?.role;
+    const dia_chi = String(req.body.dia_chi || "").trim();
+    const ma_ngan_hang = String(req.body.ma_ngan_hang || "").trim();
+    const so_tai_khoan = String(req.body.so_tai_khoan || "").trim();
+    const ten_ngan_hang = String(req.body.ten_ngan_hang || "").trim();
+
+    if (accountType !== ACCOUNT_TYPE.MEMBER) {
+        return res.status(403).json({ message: "Chỉ thành viên mới có thể cập nhật tài khoản thành viên" });
+    }
+
+    try {
+        await ensureMemberBankQrColumn();
+
+        const [result] = await promiseDb.query(
+            `UPDATE thanh_vien
+             SET dia_chi = ?, ma_ngan_hang = ?, so_tai_khoan = ?, ten_ngan_hang = ?
+             WHERE ma_thanh_vien = ?`,
+            [
+                dia_chi || null,
+                ma_ngan_hang || null,
+                so_tai_khoan || null,
+                ten_ngan_hang || null,
+                memberId
+            ]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: "Không tìm thấy tài khoản thành viên" });
+        }
+
+        const [members] = await promiseDb.query(
+            "SELECT * FROM thanh_vien WHERE ma_thanh_vien = ? LIMIT 1",
+            [memberId]
+        );
+
+        res.json({
+            message: "Đã cập nhật tài khoản thành viên",
+            user: toMemberUser(members[0])
+        });
+    } catch (err) {
+        res.status(500).json({ message: "Không thể cập nhật tài khoản thành viên", error: err.message });
     }
 };
 
