@@ -7,16 +7,80 @@
     box-shadow: 0 4px 15px rgba(0,0,0,0.05);
 }
 
-.page-title { margin-bottom: 25px; color: #1a202c; }
+.post-product-header {
+    align-items: center;
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    margin-bottom: 25px;
+}
+
+.page-title { margin: 0; color: #1a202c; }
+
+.form-alert {
+    border-radius: 8px;
+    font-weight: 600;
+    margin: 0 0 16px;
+    padding: 12px 14px;
+}
+
+.form-alert.success {
+    background: #e6f6f1;
+    border: 1px solid #a9ded0;
+    color: #006f5c;
+}
+
+.form-alert.error {
+    background: #fee2e2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+}
 
 /* Khu vực upload */
 .upload-box {
     border: 2px dashed #cbd5e0;
-    padding: 30px;
+    align-items: center;
+    display: flex;
+    justify-content: center;
+    min-height: 160px;
+    overflow: hidden;
+    padding: 18px;
     text-align: center;
     border-radius: 8px;
-    margin-bottom: 20px;
     cursor: pointer;
+}
+
+.upload-placeholder {
+    align-items: center;
+    display: flex;
+    justify-content: center;
+    width: 100%;
+}
+
+.image-preview {
+    border-radius: 6px;
+    display: block;
+    max-height: 260px;
+    max-width: 100%;
+    object-fit: contain;
+}
+
+.file-name {
+    color: #4b5563;
+    font-size: 13px;
+}
+
+.form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.field-label {
+    color: #1f2937;
+    font-size: 14px;
+    font-weight: 700;
 }
 
 /* Chia cột cho các ô nằm cạnh nhau */
@@ -24,7 +88,7 @@
     display: grid;
     grid-template-columns: 1fr 1fr; /* Chia làm 2 cột bằng nhau */
     gap: 15px; /* Khoảng cách giữa 2 cột */
-    margin-bottom: 10px;
+    margin-bottom: 0;
 }
 
 /* Định dạng chuẩn cho mọi input/select */
@@ -37,16 +101,6 @@
     box-sizing: border-box; /* Cực kỳ quan trọng để không bị tràn khung */
 }
 
-/* Khối quyên góp */
-.donation-box {
-    background: #fff5f7;
-    padding: 15px;
-    border-radius: 8px;
-    margin: 15px 0;
-}
-
-.donation-box .input-field { margin-bottom: 10px; }
-
 /* Nút đăng tin */
 .btn-submit {
     width: 100%;
@@ -58,4 +112,9 @@
     font-weight: bold;
     margin-top: 20px;
     cursor: pointer;
+}
+
+.btn-submit:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
 }

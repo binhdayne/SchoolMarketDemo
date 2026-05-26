@@ -1,6 +1,48 @@
 const db = require('../config/db');
 const promiseDb = db.promise();
 
+const PRODUCT_STATUS = {
+    PENDING: 'cho_duyet',
+    APPROVED: 'da_duyet',
+    REJECTED: 'tu_choi'
+};
+
+const DEFAULT_CATEGORIES = [
+    'Đồ dùng học tập',
+    'Điện tử',
+    'Quần áo',
+    'Sách vở',
+    'Đồ ăn',
+    'Khác'
+];
+
+let productImageColumnReady = false;
+let defaultCategoriesReady = false;
+
+async function ensureProductImageColumn() {
+    if (productImageColumnReady) return;
+
+    await promiseDb.query("ALTER TABLE san_pham MODIFY COLUMN anh LONGTEXT NULL");
+    productImageColumnReady = true;
+}
+
+async function ensureDefaultCategories() {
+    if (defaultCategoriesReady) return;
+
+    for (const category of DEFAULT_CATEGORIES) {
+        await promiseDb.query(
+            `INSERT INTO danh_muc (ten_danh_muc, mo_ta)
+             SELECT ?, ?
+             WHERE NOT EXISTS (
+                SELECT 1 FROM danh_muc WHERE ten_danh_muc = ? LIMIT 1
+             )`,
+            [category, `Danh mục ${category}`, category]
+        );
+    }
+
+    defaultCategoriesReady = true;
+}
+
 // Xử lý lấy thống kê Dashboard
 exports.getMemberStats = async (req, res) => {
     const ma_thanh_vien = req.user.id; // Lấy từ token sau khi xác thực
@@ -8,7 +50,7 @@ exports.getMemberStats = async (req, res) => {
         const [rows] = await promiseDb.execute(`
             SELECT
                 (SELECT COUNT(*) FROM san_pham WHERE ma_thanh_vien = ?) as spDaDang,
-                (SELECT COUNT(*) FROM thanh_toan WHERE ma_thanh_vien_nhan = ? AND trang_thai = 'da_ban') as daBan,
+                (SELECT COUNT(DISTINCT ma_san_pham) FROM thanh_toan WHERE ma_thanh_vien_nhan = ? AND trang_thai IN ('da_ban', 'da_thanh_toan', 'hoan_tat')) as daBan,
                 (SELECT COUNT(*) FROM san_pham WHERE ma_thanh_vien = ? AND so_phan_tram_quyen_gop > 0) as quyenGop
         `, [ma_thanh_vien, ma_thanh_vien, ma_thanh_vien]);
         res.json(rows[0]);
@@ -18,39 +60,87 @@ exports.getMemberStats = async (req, res) => {
 };
 
 // Lấy danh sách danh mục
-exports.getCategories = (req, res) => {
-    db.query("SELECT ma_danh_muc, ten_danh_muc FROM danh_muc", (err, result) => {
-        if (err) {
-            console.error("LỖI SQL KHI LẤY DANH MỤC:", err);
-            return res.status(500).json({ error: err.message });
-        }
-        res.json(result);
-    });
+exports.getCategories = async (req, res) => {
+    try {
+        await ensureDefaultCategories();
+
+        const [categories] = await promiseDb.query(
+            "SELECT ma_danh_muc, ten_danh_muc FROM danh_muc ORDER BY ma_danh_muc"
+        );
+        res.json(categories);
+    } catch (err) {
+        console.error("LỖI SQL KHI LẤY DANH MỤC:", err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+exports.getMarketplaceStats = async (req, res) => {
+    try {
+        const [rows] = await promiseDb.query(`
+            SELECT
+                (SELECT COUNT(*) FROM san_pham) AS products,
+                (SELECT COUNT(*) FROM hoat_dong_quyen_gop) AS campaigns,
+                (SELECT COUNT(*) FROM thanh_vien) AS members
+        `);
+
+        res.json({
+            products: Number(rows[0]?.products || 0),
+            campaigns: Number(rows[0]?.campaigns || 0),
+            members: Number(rows[0]?.members || 0),
+            satisfaction: 95
+        });
+    } catch (err) {
+        res.status(500).json({ error: "Không thể lấy thống kê trang chủ: " + err.message });
+    }
+};
+
+exports.getPublicProducts = async (req, res) => {
+    try {
+        await ensureProductImageColumn();
+
+        const [products] = await promiseDb.query(
+            `SELECT
+                sp.ma_san_pham,
+                sp.ten_san_pham,
+                sp.anh,
+                sp.mo_ta,
+                sp.gia,
+                sp.tinh_trang,
+                sp.trang_thai,
+                sp.so_luong,
+                sp.ngay_dang,
+                sp.ma_danh_muc,
+                dm.ten_danh_muc
+             FROM san_pham sp
+             LEFT JOIN danh_muc dm ON dm.ma_danh_muc = sp.ma_danh_muc
+             WHERE sp.trang_thai = ?
+             ORDER BY sp.ngay_dang DESC, sp.ma_san_pham DESC`,
+            [PRODUCT_STATUS.APPROVED]
+        );
+
+        res.json(products);
+    } catch (err) {
+        res.status(500).json({ error: "Không thể lấy sản phẩm trang chủ: " + err.message });
+    }
 };
 
 exports.createProduct = async (req, res) => {
-    // 1. CHỐT CHẶN BÁO CÁO: In toàn bộ những gì Backend nhận được ra Terminal
-    console.log("\n=== KIỂM TRA LUỒNG DỮ LIỆU ĐẦU VÀO ===");
-    console.log("Headers Content-Type:", req.headers['content-type']);
-    console.log("Dữ liệu dạng Text (req.body):", req.body);
-    console.log("Dữ liệu File (req.file):", req.file);
-    console.log("======================================\n");
-
     try {
-        // 2. CHỐT CHẶN LOGIC: Chặn đứng request nếu Multer không bóc tách được dữ liệu
+        await ensureProductImageColumn();
+        await ensureDefaultCategories();
+
         if (!req.body || Object.keys(req.body).length === 0) {
             return res.status(400).json({
-                error: "Lỗi Hệ Thống: req.body rỗng. Middleware Multer chưa được kích hoạt hoặc cấu hình sai ở Route!"
+                error: "Không nhận được dữ liệu sản phẩm. Vui lòng thử lại."
             });
         }
 
         if (!req.body.ten_san_pham) {
             return res.status(400).json({
-                error: "Lỗi Hệ Thống: Có nhận được Form nhưng trường ten_san_pham bị thiếu!"
+                error: "Vui lòng nhập tên sản phẩm."
             });
         }
 
-        // 3. XỬ LÝ DỮ LIỆU CHÍNH
         const anh = req.file ? `/uploads/${req.file.filename}` : null;
         const {
             ten_san_pham, mo_ta, gia, ma_danh_muc,
@@ -67,14 +157,17 @@ exports.createProduct = async (req, res) => {
         const sql = `INSERT INTO san_pham
             (ten_san_pham, anh, mo_ta, gia, tinh_trang, trang_thai,
              so_luong, ma_thanh_vien, ma_danh_muc, so_phan_tram_quyen_gop, ma_hoat_dong)
-            VALUES (?, ?, ?, ?, ?, 'cho_duyet', ?, ?, ?, ?, ?)`;
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         await promiseDb.execute(sql, [
-            ten_san_pham, anh, mo_ta || null, finalGia, tinh_trang || 'Như mới',
+            ten_san_pham, anh, mo_ta || null, finalGia, tinh_trang || 'Như mới', PRODUCT_STATUS.PENDING,
             finalSoLuong, ma_thanh_vien, finalMaDanhMuc, finalPhanTram, finalMaHoatDong
         ]);
 
-        res.status(201).json({ message: "Đăng sản phẩm thành công!" });
+        res.status(201).json({
+            message: "Đã gửi bài đăng sản phẩm cho admin duyệt.",
+            trang_thai: PRODUCT_STATUS.PENDING
+        });
     } catch (err) {
         console.error("LỖI SQL:", err);
         res.status(500).json({ error: "Lỗi Database: " + err.message });
@@ -99,6 +192,72 @@ exports.getMyProducts = (req, res) => {
         res.status(500).json({ error: "Lỗi hệ thống" });
     }
 };
+
+exports.getPendingProducts = async (req, res) => {
+    try {
+        const [products] = await promiseDb.execute(
+            `SELECT
+                sp.ma_san_pham,
+                sp.ten_san_pham,
+                sp.anh,
+                sp.mo_ta,
+                sp.gia,
+                sp.tinh_trang,
+                sp.trang_thai,
+                sp.so_luong,
+                sp.ngay_dang,
+                sp.so_phan_tram_quyen_gop,
+                tv.ho_ten,
+                dm.ten_danh_muc,
+                hd.ten_hoat_dong
+             FROM san_pham sp
+             LEFT JOIN thanh_vien tv ON tv.ma_thanh_vien = sp.ma_thanh_vien
+             LEFT JOIN danh_muc dm ON dm.ma_danh_muc = sp.ma_danh_muc
+             LEFT JOIN hoat_dong_quyen_gop hd ON hd.ma_hoat_dong = sp.ma_hoat_dong
+             WHERE sp.trang_thai = ?
+             ORDER BY sp.ngay_dang DESC, sp.ma_san_pham DESC`,
+            [PRODUCT_STATUS.PENDING]
+        );
+
+        res.json(products);
+    } catch (err) {
+        res.status(500).json({ error: "Không thể lấy danh sách sản phẩm chờ duyệt: " + err.message });
+    }
+};
+
+exports.updateProductStatus = async (req, res) => {
+    const { id } = req.params;
+    const nextStatus = req.action === 'approve' ? PRODUCT_STATUS.APPROVED : PRODUCT_STATUS.REJECTED;
+
+    try {
+        const [result] = await promiseDb.execute(
+            'UPDATE san_pham SET trang_thai = ? WHERE ma_san_pham = ?',
+            [nextStatus, id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
+        }
+
+        res.json({
+            message: req.action === 'approve' ? "Đã duyệt sản phẩm." : "Đã từ chối sản phẩm.",
+            trang_thai: nextStatus
+        });
+    } catch (err) {
+        res.status(500).json({ error: "Không thể cập nhật trạng thái sản phẩm: " + err.message });
+    }
+};
+
+exports.approveProduct = (req, res, next) => {
+    req.action = 'approve';
+    return exports.updateProductStatus(req, res, next);
+};
+
+exports.rejectProduct = (req, res, next) => {
+    req.action = 'reject';
+    return exports.updateProductStatus(req, res, next);
+};
+
 // Xóa sản phẩm
 exports.deleteProduct = (req, res) => {
     try {

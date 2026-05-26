@@ -13,7 +13,7 @@ CREATE TABLE thanh_vien (
     ngay_sinh DATE,
     dia_chi VARCHAR(255),
     lop VARCHAR(50),
-    ma_ngan_hang VARCHAR(50),
+    ma_ngan_hang LONGTEXT,
     so_tai_khoan VARCHAR(50),
     ten_ngan_hang VARCHAR(100),
     vai_tro VARCHAR(50),
@@ -51,6 +51,14 @@ CREATE TABLE danh_muc (
     mo_ta TEXT
 );
 
+INSERT INTO danh_muc (ten_danh_muc, mo_ta) VALUES
+('Đồ dùng học tập', 'Danh mục Đồ dùng học tập'),
+('Điện tử', 'Danh mục Điện tử'),
+('Quần áo', 'Danh mục Quần áo'),
+('Sách vở', 'Danh mục Sách vở'),
+('Đồ ăn', 'Danh mục Đồ ăn'),
+('Khác', 'Danh mục Khác');
+
 CREATE TABLE hoat_dong_quyen_gop (
     ma_hoat_dong INT AUTO_INCREMENT PRIMARY KEY,
     ten_hoat_dong VARCHAR(150) NOT NULL,
@@ -71,7 +79,7 @@ CREATE TABLE hoat_dong_quyen_gop (
 CREATE TABLE san_pham (
     ma_san_pham INT AUTO_INCREMENT PRIMARY KEY,
     ten_san_pham VARCHAR(150) NOT NULL,
-    anh VARCHAR(255),
+    anh LONGTEXT,
     mo_ta TEXT,
     gia DECIMAL(12,2),
     tinh_trang VARCHAR(100),

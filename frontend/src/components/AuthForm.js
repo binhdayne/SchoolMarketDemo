@@ -16,7 +16,7 @@ const initialForm = {
   password: "",
 };
 
-function AuthForm({ onLoginSuccess, initialMode }) {
+function AuthForm({ onLoginSuccess, initialMode, onHomeClick }) {
   const [mode, setMode] = useState(initialMode || "login");
   const [form, setForm] = useState(initialForm);
   const [message, setMessage] = useState("");
@@ -115,15 +115,15 @@ function AuthForm({ onLoginSuccess, initialMode }) {
   return (
     <main className="auth-page">
       <section className="auth-shell" aria-label="School Market authentication">
-        <BrandPanel />
+        <BrandPanel onHomeClick={onHomeClick} />
 
         <section className="auth-panel">
           <div className="auth-card">
             <div className="auth-card-header">
-              <div className="auth-mobile-brand">
+              <button type="button" className="auth-mobile-brand brand-logo-button" onClick={onHomeClick}>
                 <img className="brand-logo" src="/images/school-market-icon-v2.png" alt="" />
                 <span>School Market</span>
-              </div>
+              </button>
               <h1>{isLogin ? "Đăng nhập vào School Market" : "Tạo tài khoản School Market"}</h1>
               <p>
                 {isLogin
@@ -261,14 +261,14 @@ function AuthForm({ onLoginSuccess, initialMode }) {
   );
 }
 
-function BrandPanel() {
+function BrandPanel({ onHomeClick }) {
   return (
     <section className="brand-panel" aria-label="School Market">
       <div className="brand-copy">
-        <div className="brand-logo-row">
+        <button type="button" className="brand-logo-row brand-logo-button" onClick={onHomeClick}>
           <img className="brand-logo" src="/images/school-market-icon-v2.png" alt="" />
           <span className="brand-name">School Market</span>
-        </div>
+        </button>
         <h2>
           Chợ học đường cho mọi món đồ <span>bạn cần.</span>
         </h2>

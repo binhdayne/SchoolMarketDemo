@@ -5,6 +5,9 @@ import MemberPage from "./pages/MemberPage";
 import OrganizationPage from "./pages/OrganizationPage";
 import LandingPage from "./LandingPage";
 import PostProductPage from "./pages/PostProductPage";
+import DonationEventsPage from "./pages/DonationEventsPage";
+import ActivityPostsPage from "./pages/ActivityPostsPage";
+import MemberAccountPage from "./pages/MemberAccountPage";
 
 const API = "http://localhost:5000/api";
 
@@ -42,6 +45,8 @@ function App() {
   });
   const [pendingAccounts, setPendingAccounts] = useState([]);
   const [pendingCampaigns, setPendingCampaigns] = useState([]);
+  const [pendingProducts, setPendingProducts] = useState([]);
+  const [pendingPosts, setPendingPosts] = useState([]);
   const [adminMembers, setAdminMembers] = useState([]);
   const [adminOrganizations, setAdminOrganizations] = useState([]);
   const [loadingAdminData, setLoadingAdminData] = useState(false);
@@ -64,17 +69,21 @@ function App() {
 
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [pendingRes, membersRes, organizationsRes, pendingCampaignsRes] = await Promise.all([
+      const [pendingRes, membersRes, organizationsRes, pendingCampaignsRes, pendingProductsRes, pendingPostsRes] = await Promise.all([
         axios.get(`${API}/auth/pending-accounts`, { headers }),
         axios.get(`${API}/auth/members`, { headers }),
         axios.get(`${API}/auth/organizations`, { headers }),
         axios.get(`${API}/campaigns/pending`, { headers }),
+        axios.get(`${API}/products/pending`, { headers }),
+        axios.get(`${API}/posts/pending`, { headers }),
       ]);
 
       setPendingAccounts(pendingRes.data);
       setAdminMembers(membersRes.data);
       setAdminOrganizations(organizationsRes.data);
       setPendingCampaigns(pendingCampaignsRes.data);
+      setPendingProducts(pendingProductsRes.data);
+      setPendingPosts(pendingPostsRes.data);
     } catch (err) {
       setNotice(err.response?.data?.message || "Không thể tải dữ liệu trang admin.");
     } finally {
@@ -118,6 +127,42 @@ function App() {
     }
   }, [role, token]);
 
+  const loadPendingProducts = useCallback(async () => {
+    if (!token || role !== "admin") return;
+
+    setLoadingAdminData(true);
+    setNotice("");
+
+    try {
+      const res = await axios.get(`${API}/products/pending`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setPendingProducts(res.data);
+    } catch (err) {
+      setNotice(err.response?.data?.message || err.response?.data?.error || "Không thể tải danh sách sản phẩm chờ duyệt.");
+    } finally {
+      setLoadingAdminData(false);
+    }
+  }, [role, token]);
+
+  const loadPendingActivityPosts = useCallback(async () => {
+    if (!token || role !== "admin") return;
+
+    setLoadingAdminData(true);
+    setNotice("");
+
+    try {
+      const res = await axios.get(`${API}/posts/pending`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setPendingPosts(res.data);
+    } catch (err) {
+      setNotice(err.response?.data?.message || "Không thể tải danh sách bài đăng chờ duyệt.");
+    } finally {
+      setLoadingAdminData(false);
+    }
+  }, [role, token]);
+
   useEffect(() => {
     loadAdminData();
   }, [loadAdminData]);
@@ -140,6 +185,13 @@ function App() {
     setCurrentUser(nextUser);
   };
 
+  const handleMemberProfileUpdate = (updatedUser) => {
+    const nextUser = { ...currentUser, ...updatedUser };
+
+    localStorage.setItem("user", JSON.stringify(nextUser));
+    setCurrentUser(nextUser);
+  };
+
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
@@ -147,6 +199,8 @@ function App() {
     setCurrentUser(null);
     setPendingAccounts([]);
     setPendingCampaigns([]);
+    setPendingProducts([]);
+    setPendingPosts([]);
     setAdminMembers([]);
     setAdminOrganizations([]);
     setActiveAdminView("pending");
@@ -157,6 +211,14 @@ function App() {
     setOrganizationEventCreatorOpen(false);
     setAuthMode(null);
     setView("dashboard");
+  };
+
+  const goHome = () => {
+    setAuthMode(null);
+    setNotice("");
+    setOrganizationManagerOpen(false);
+    setOrganizationEventCreatorOpen(false);
+    setView("home");
   };
 
   const updateAccountStatus = async (account, action) => {
@@ -208,6 +270,42 @@ function App() {
       setNotice(res.data.message);
     } catch (err) {
       setNotice(err.response?.data?.message || "Không thể cập nhật sự kiện quyên góp.");
+    }
+  };
+
+  const updateProductStatus = async (product, action) => {
+    try {
+      const endpoint = action === "approve" ? "approve" : "reject";
+      const res = await axios.put(
+        `${API}/products/${product.ma_san_pham}/${endpoint}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setPendingProducts((prev) =>
+        prev.filter((item) => item.ma_san_pham !== product.ma_san_pham)
+      );
+      setNotice(res.data.message);
+    } catch (err) {
+      setNotice(err.response?.data?.message || err.response?.data?.error || "Không thể cập nhật sản phẩm.");
+    }
+  };
+
+  const updatePostStatus = async (post, action) => {
+    try {
+      const endpoint = action === "approve" ? "approve" : "reject";
+      const res = await axios.put(
+        `${API}/posts/${endpoint}/${post.ma_bai_dang}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setPendingPosts((prev) =>
+        prev.filter((item) => item.ma_bai_dang !== post.ma_bai_dang)
+      );
+      setNotice(res.data.message);
+    } catch (err) {
+      setNotice(err.response?.data?.message || "Không thể cập nhật bài đăng hoạt động.");
     }
   };
 
@@ -307,17 +405,33 @@ function App() {
   };
 
   if (!token) {
+    if (view === "donations") {
+      return (
+        <div style={styles.page}>
+          <PublicHeader
+            onHomeClick={() => setView("dashboard")}
+            onLoginClick={() => {
+              setView("dashboard");
+              setAuthMode("login");
+            }}
+            onRegisterClick={() => {
+              setView("dashboard");
+              setAuthMode("register");
+            }}
+          />
+          <DonationEventsPage onBackHome={() => setView("dashboard")} />
+        </div>
+      );
+    }
+
     if (authMode) {
       return (
         <div style={{ position: 'relative' }}>
-          <button
-            onClick={() => setAuthMode(null)}
-            style={{ position: 'absolute', top: 20, left: 20, zIndex: 10, padding: '8px 16px', borderRadius: 8, border: '1px solid #ccc', background: 'white', cursor: 'pointer', fontWeight: 600 }}
-          >
-            ← Quay lại trang chủ
-          </button>
-
-          <AuthForm initialMode={authMode} onLoginSuccess={handleLoginSuccess} />
+          <AuthForm
+            initialMode={authMode}
+            onLoginSuccess={handleLoginSuccess}
+            onHomeClick={() => setAuthMode(null)}
+          />
         </div>
       );
     }
@@ -325,6 +439,26 @@ function App() {
       <LandingPage
         onLoginClick={() => setAuthMode('login')}
         onRegisterClick={() => setAuthMode('register')}
+        onHomeClick={() => setAuthMode(null)}
+        onDonationClick={() => setView("donations")}
+        onActivityClick={() => setAuthMode("login")}
+      />
+    );
+  }
+
+  if (view === "home") {
+    return (
+      <LandingPage
+        isAuthenticated
+        user={currentUser}
+        accountType={accountType}
+        onHomeClick={goHome}
+        onDashboardClick={() => setView("dashboard")}
+        onDonationClick={() => setView("donations")}
+        onActivityClick={() => setView("activities")}
+        onAccountClick={() => setView(accountType === "thanh_vien" ? "member-account" : "dashboard")}
+        onPostProductClick={() => setView(accountType === "thanh_vien" ? "post-product" : "dashboard")}
+        onLogout={handleLogout}
       />
     );
   }
@@ -332,15 +466,20 @@ function App() {
   return (
     <div style={styles.page}>
       <header style={styles.header}>
-        <div style={styles.brandHeader}>
+        <button
+          type="button"
+          onClick={goHome}
+          style={{ ...styles.brandHeader, ...styles.brandHeaderButton }}
+          aria-label="Về trang chủ School Market"
+        >
           <img src="/images/school-market-icon-v2.png" alt="School Market" style={styles.headerLogo} />
           <div>
             <h1 style={styles.title}>School Market</h1>
             <p style={styles.subtitle}>{getHeaderSubtitle(role, accountType)}</p>
           </div>
-        </div>
+        </button>
         <div style={styles.headerCenter}>
-          {accountType === "to_chuc" && (
+          {accountType === "to_chuc" ? (
             <button
               type="button"
               onClick={() => {
@@ -354,9 +493,9 @@ function App() {
               }}
               style={styles.createEventButton}
             >
-              {organizationEventCreatorOpen ? "Về trang chủ" : "Tạo sự kiện quyên góp"}
+              {organizationEventCreatorOpen ? "Đóng tạo sự kiện" : "Tạo sự kiện quyên góp"}
             </button>
-          )}
+          ) : null}
         </div>
         <div style={styles.account}>
           {accountType === "to_chuc" && (
@@ -370,7 +509,17 @@ function App() {
               }}
             />
           )}
-          <span style={styles.accountName}>{getDisplayName(currentUser)}</span>
+          {accountType === "thanh_vien" ? (
+            <button
+              type="button"
+              onClick={() => setView("member-account")}
+              style={styles.accountNameButton}
+            >
+              {getDisplayName(currentUser)}
+            </button>
+          ) : (
+            <span style={styles.accountName}>{getDisplayName(currentUser)}</span>
+          )}
           {accountType === "to_chuc" && (
             <button
               type="button"
@@ -380,7 +529,7 @@ function App() {
               }}
               style={styles.manageOrgButton}
             >
-              {organizationManagerOpen ? "Về trang chủ" : "Quản lý tài khoản"}
+              {organizationManagerOpen ? "Đóng quản lý" : "Quản lý tài khoản"}
             </button>
           )}
           <span style={styles.roleBadge}>{getRoleLabel(accountType)}</span>
@@ -394,6 +543,8 @@ function App() {
         <AdminDashboard
           pendingAccounts={pendingAccounts}
           pendingCampaigns={pendingCampaigns}
+          pendingProducts={pendingProducts}
+          pendingPosts={pendingPosts}
           members={adminMembers}
           organizations={adminOrganizations}
           activeView={activeAdminView}
@@ -402,10 +553,22 @@ function App() {
           onReload={loadAdminData}
           onReloadPending={loadPendingAccounts}
           onReloadCampaigns={loadPendingCampaigns}
+          onReloadProducts={loadPendingProducts}
+          onReloadPosts={loadPendingActivityPosts}
           onOpenBanDialog={openBanDialog}
           onUnbanAccount={unbanAccount}
           onUpdateStatus={updateAccountStatus}
           onUpdateCampaignStatus={updateCampaignStatus}
+          onUpdateProductStatus={updateProductStatus}
+          onUpdatePostStatus={updatePostStatus}
+        />
+      ) : view === "donations" ? (
+        <DonationEventsPage onBackHome={goHome} />
+      ) : view === "activities" ? (
+        <ActivityPostsPage
+          token={token}
+          accountType={accountType}
+          onBackHome={goHome}
         />
       ) : accountType === "to_chuc" ? (
         <OrganizationPage
@@ -417,6 +580,12 @@ function App() {
           onCloseEventCreator={() => setOrganizationEventCreatorOpen(false)}
           onProfileUpdated={handleOrganizationProfileUpdate}
         />
+      ) : view === "member-account" ? (
+        <MemberAccountPage
+          token={token}
+          onBackHome={goHome}
+          onProfileUpdated={handleMemberProfileUpdate}
+        />
       ) : view === "dashboard" ? (
         <MemberPage
           user={currentUser}
@@ -424,10 +593,17 @@ function App() {
           navigate={navigate}
           onLogout={handleLogout}
         />
-      ) : (
+      ) : view === "post-product" ? (
         <PostProductPage
           navigate={navigate}
           token={token}
+        />
+      ) : (
+        <MemberPage
+          user={currentUser}
+          token={token}
+          navigate={navigate}
+          onLogout={handleLogout}
         />
       )}
 
@@ -445,9 +621,35 @@ function App() {
   );
 }
 
+function PublicHeader({ onHomeClick, onLoginClick, onRegisterClick }) {
+  return (
+    <header style={styles.publicHeader}>
+      <button
+        type="button"
+        onClick={onHomeClick}
+        style={{ ...styles.brandHeader, ...styles.brandHeaderButton }}
+        aria-label="Về trang chủ School Market"
+      >
+        <img src="/images/school-market-icon-v2.png" alt="School Market" style={styles.publicLogo} />
+        <strong style={styles.publicBrand}>School Market</strong>
+      </button>
+      <div style={styles.publicActions}>
+        <button type="button" onClick={onLoginClick} style={styles.publicLoginButton}>
+          Đăng nhập
+        </button>
+        <button type="button" onClick={onRegisterClick} style={styles.publicRegisterButton}>
+          Đăng ký
+        </button>
+      </div>
+    </header>
+  );
+}
+
 function AdminDashboard({
   pendingAccounts,
   pendingCampaigns,
+  pendingProducts,
+  pendingPosts,
   members,
   organizations,
   activeView,
@@ -456,10 +658,14 @@ function AdminDashboard({
   onReload,
   onReloadPending,
   onReloadCampaigns,
+  onReloadProducts,
+  onReloadPosts,
   onOpenBanDialog,
   onUnbanAccount,
   onUpdateStatus,
   onUpdateCampaignStatus,
+  onUpdateProductStatus,
+  onUpdatePostStatus,
 }) {
   const views = [
     {
@@ -485,6 +691,18 @@ function AdminDashboard({
       title: "Sự kiện",
       count: pendingCampaigns.length,
       description: "Duyệt hoặc từ chối sự kiện quyên góp của tổ chức.",
+    },
+    {
+      key: "products",
+      title: "Sản phẩm",
+      count: pendingProducts.length,
+      description: "Duyệt hoặc từ chối bài đăng sản phẩm của thành viên.",
+    },
+    {
+      key: "posts",
+      title: "Bài đăng",
+      count: pendingPosts.length,
+      description: "Duyệt hoặc từ chối bài đăng hoạt động của thành viên.",
     },
   ];
 
@@ -535,6 +753,20 @@ function AdminDashboard({
           loading={loading}
           onReload={onReloadCampaigns}
           onUpdateStatus={onUpdateCampaignStatus}
+        />
+      ) : activeView === "products" ? (
+        <AdminPendingProducts
+          products={pendingProducts}
+          loading={loading}
+          onReload={onReloadProducts}
+          onUpdateStatus={onUpdateProductStatus}
+        />
+      ) : activeView === "posts" ? (
+        <AdminPendingPosts
+          posts={pendingPosts}
+          loading={loading}
+          onReload={onReloadPosts}
+          onUpdateStatus={onUpdatePostStatus}
         />
       ) : (
         <AdminPendingAccounts
@@ -872,6 +1104,154 @@ function AdminPendingCampaigns({ campaigns, loading, onReload, onUpdateStatus })
   );
 }
 
+function AdminPendingProducts({ products, loading, onReload, onUpdateStatus }) {
+  return (
+    <section style={styles.section}>
+      <div style={styles.sectionHeader}>
+        <div>
+          <h2 style={styles.sectionTitle}>Sản phẩm chờ duyệt</h2>
+          <p style={styles.sectionDescription}>Bài đăng của thành viên chỉ hiển thị sau khi admin duyệt.</p>
+        </div>
+        <button onClick={onReload} style={styles.secondaryButton}>
+          Tải lại
+        </button>
+      </div>
+
+      {loading ? (
+        <p style={styles.empty}>Đang tải danh sách...</p>
+      ) : products.length === 0 ? (
+        <p style={styles.empty}>Không có sản phẩm nào đang chờ duyệt.</p>
+      ) : (
+        <div style={styles.tableWrap}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Ảnh</th>
+                <th style={styles.th}>Tên sản phẩm</th>
+                <th style={styles.th}>Thành viên</th>
+                <th style={styles.th}>Danh mục</th>
+                <th style={styles.th}>Giá</th>
+                <th style={styles.th}>Tình trạng</th>
+                <th style={styles.th}>Quyên góp</th>
+                <th style={styles.th}>Mô tả</th>
+                <th style={styles.th}>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.map((product) => (
+                <tr key={product.ma_san_pham}>
+                  <td style={styles.td}>
+                    <img
+                      src={getAssetUrl(product.anh)}
+                      alt=""
+                      style={styles.campaignThumb}
+                    />
+                  </td>
+                  <td style={styles.td}>{product.ten_san_pham}</td>
+                  <td style={styles.td}>{product.ho_ten || "-"}</td>
+                  <td style={styles.td}>{product.ten_danh_muc || "-"}</td>
+                  <td style={styles.td}>{formatCurrency(product.gia)}</td>
+                  <td style={styles.td}>{product.tinh_trang || "-"}</td>
+                  <td style={styles.td}>
+                    {Number(product.so_phan_tram_quyen_gop || 0) > 0
+                      ? `${product.so_phan_tram_quyen_gop}%${product.ten_hoat_dong ? ` - ${product.ten_hoat_dong}` : ""}`
+                      : "-"}
+                  </td>
+                  <td style={{ ...styles.td, ...styles.longTextCell }}>{product.mo_ta || "-"}</td>
+                  <td style={styles.td}>
+                    <div style={styles.actions}>
+                      <button
+                        type="button"
+                        onClick={() => onUpdateStatus(product, "approve")}
+                        style={styles.approveButton}
+                      >
+                        Duyệt
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onUpdateStatus(product, "reject")}
+                        style={styles.rejectButton}
+                      >
+                        Từ chối
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AdminPendingPosts({ posts, loading, onReload, onUpdateStatus }) {
+  return (
+    <section style={styles.section}>
+      <div style={styles.sectionHeader}>
+        <div>
+          <h2 style={styles.sectionTitle}>Bài đăng hoạt động chờ duyệt</h2>
+          <p style={styles.sectionDescription}>Bài đăng của thành viên chỉ hiện trên web sau khi admin duyệt.</p>
+        </div>
+        <button onClick={onReload} style={styles.secondaryButton}>
+          Tải lại
+        </button>
+      </div>
+
+      {loading ? (
+        <p style={styles.empty}>Đang tải danh sách...</p>
+      ) : posts.length === 0 ? (
+        <p style={styles.empty}>Không có bài đăng hoạt động nào đang chờ duyệt.</p>
+      ) : (
+        <div style={styles.tableWrap}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Tiêu đề</th>
+                <th style={styles.th}>Thành viên</th>
+                <th style={styles.th}>Loại</th>
+                <th style={styles.th}>Nội dung</th>
+                <th style={styles.th}>Ngày đăng</th>
+                <th style={styles.th}>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {posts.map((post) => (
+                <tr key={post.ma_bai_dang}>
+                  <td style={styles.td}>{post.tieu_de}</td>
+                  <td style={styles.td}>{post.ho_ten || "-"}</td>
+                  <td style={styles.td}>{getActivityPostTypeLabel(post.loai_bai_dang)}</td>
+                  <td style={{ ...styles.td, ...styles.longTextCell }}>{post.noi_dung || "-"}</td>
+                  <td style={styles.td}>{post.ngay_dang ? formatDate(post.ngay_dang) : "-"}</td>
+                  <td style={styles.td}>
+                    <div style={styles.actions}>
+                      <button
+                        type="button"
+                        onClick={() => onUpdateStatus(post, "approve")}
+                        style={styles.approveButton}
+                      >
+                        Duyệt
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onUpdateStatus(post, "reject")}
+                        style={styles.rejectButton}
+                      >
+                        Từ chối
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function BanAccountDialog({ account, reason, submitting, onChangeReason, onClose, onSubmit }) {
   return (
     <div style={styles.modalOverlay} role="presentation">
@@ -945,8 +1325,15 @@ function formatCurrency(value) {
   });
 }
 
+function getAssetUrl(path) {
+  if (!path) return "/images/school-market-icon-v2.png";
+  if (/^https?:\/\//i.test(path)) return path;
+  return `http://localhost:5000${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 function formatBankInfo(member) {
-  const parts = [member.ten_ngan_hang, member.so_tai_khoan, member.ma_ngan_hang].filter(Boolean);
+  const parts = [member.ten_ngan_hang, member.so_tai_khoan].filter(Boolean);
+  if (member.ma_ngan_hang) parts.push("Có QR");
   return parts.length > 0 ? parts.join(" - ") : "-";
 }
 
@@ -955,6 +1342,13 @@ function getDonationTypeLabel(type) {
   if (type === "ban_do_quyen_gop") return "Bán đồ quyên góp";
   if (type === "nhan_do_vat") return "Nhận đồ vật";
   return type || "-";
+}
+
+function getActivityPostTypeLabel(type) {
+  if (type === "keu_goi_tinh_nguyen") return "Kêu gọi tình nguyện";
+  if (type === "trao_doi_chia_se") return "Trao đổi chia sẻ";
+  if (type === "hoi_dap") return "Hỏi đáp";
+  return "Khác";
 }
 
 function getStatusLabel(status) {
@@ -988,6 +1382,48 @@ const styles = {
     color: "#111827",
     padding: 24,
   },
+  publicHeader: {
+    alignItems: "center",
+    backgroundColor: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 8,
+    display: "flex",
+    justifyContent: "space-between",
+    marginBottom: 18,
+    padding: "14px 18px",
+  },
+  publicLogo: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    objectFit: "cover",
+  },
+  publicBrand: {
+    color: "#52a774",
+    fontSize: 20,
+  },
+  publicActions: {
+    alignItems: "center",
+    display: "flex",
+    gap: 10,
+  },
+  publicLoginButton: {
+    backgroundColor: "transparent",
+    border: "none",
+    color: "#111827",
+    cursor: "pointer",
+    fontWeight: 700,
+    padding: "9px 10px",
+  },
+  publicRegisterButton: {
+    backgroundColor: "#52a774",
+    border: "none",
+    borderRadius: 999,
+    color: "#fff",
+    cursor: "pointer",
+    fontWeight: 800,
+    padding: "10px 16px",
+  },
   header: {
     display: "grid",
     gridTemplateColumns: "minmax(280px, 1fr) auto minmax(280px, 1fr)",
@@ -999,6 +1435,15 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: 12,
+  },
+  brandHeaderButton: {
+    backgroundColor: "transparent",
+    border: "none",
+    color: "inherit",
+    cursor: "pointer",
+    font: "inherit",
+    padding: 0,
+    textAlign: "left",
   },
   headerLogo: {
     width: 48,
@@ -1046,6 +1491,15 @@ const styles = {
   },
   accountName: {
     fontWeight: 600,
+  },
+  accountNameButton: {
+    backgroundColor: "transparent",
+    border: "none",
+    color: "#111827",
+    cursor: "pointer",
+    font: "inherit",
+    fontWeight: 700,
+    padding: 0,
   },
   manageOrgButton: {
     border: "1px solid #008a73",
