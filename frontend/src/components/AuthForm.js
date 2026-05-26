@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
 import "./AuthForm.css";
 
@@ -16,13 +16,19 @@ const initialForm = {
   password: "",
 };
 
-function AuthForm({ onLoginSuccess }) {
-  const [mode, setMode] = useState("login");
+function AuthForm({ onLoginSuccess, initialMode }) {
+  const [mode, setMode] = useState(initialMode || "login");
   const [form, setForm] = useState(initialForm);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [bannedNotice, setBannedNotice] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (initialMode) {
+      setMode(initialMode);
+    }
+  }, [initialMode]);
 
   const isLogin = mode === "login";
 

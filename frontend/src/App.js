@@ -3,6 +3,8 @@ import axios from "axios";
 import AuthForm from "./components/AuthForm";
 import MemberPage from "./pages/MemberPage";
 import OrganizationPage from "./pages/OrganizationPage";
+import LandingPage from "./LandingPage";
+import PostProductPage from "./pages/PostProductPage";
 
 const API = "http://localhost:5000/api";
 
@@ -16,7 +18,13 @@ function decodeToken(token) {
 }
 
 function App() {
+  const [view, setView] = useState("dashboard");
+  const navigate = (page) => {
+    setView(page);
+  };
   const [token, setToken] = useState(localStorage.getItem("token"));
+  const [authMode, setAuthMode] = useState(null);
+
   const [currentUser, setCurrentUser] = useState(() => {
     const savedUser = localStorage.getItem("user");
     if (savedUser) return JSON.parse(savedUser);
@@ -121,6 +129,8 @@ function App() {
     setCurrentUser(user);
     setOrganizationManagerOpen(false);
     setOrganizationEventCreatorOpen(false);
+    setAuthMode(null);
+    setView("dashboard");
   };
 
   const handleOrganizationProfileUpdate = (updatedUser) => {
@@ -145,6 +155,8 @@ function App() {
     setNotice("");
     setOrganizationManagerOpen(false);
     setOrganizationEventCreatorOpen(false);
+    setAuthMode(null);
+    setView("dashboard");
   };
 
   const updateAccountStatus = async (account, action) => {
@@ -295,7 +307,26 @@ function App() {
   };
 
   if (!token) {
-    return <AuthForm onLoginSuccess={handleLoginSuccess} />;
+    if (authMode) {
+      return (
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => setAuthMode(null)}
+            style={{ position: 'absolute', top: 20, left: 20, zIndex: 10, padding: '8px 16px', borderRadius: 8, border: '1px solid #ccc', background: 'white', cursor: 'pointer', fontWeight: 600 }}
+          >
+            ← Quay lại trang chủ
+          </button>
+
+          <AuthForm initialMode={authMode} onLoginSuccess={handleLoginSuccess} />
+        </div>
+      );
+    }
+    return (
+      <LandingPage
+        onLoginClick={() => setAuthMode('login')}
+        onRegisterClick={() => setAuthMode('register')}
+      />
+    );
   }
 
   return (
@@ -386,8 +417,18 @@ function App() {
           onCloseEventCreator={() => setOrganizationEventCreatorOpen(false)}
           onProfileUpdated={handleOrganizationProfileUpdate}
         />
+      ) : view === "dashboard" ? (
+        <MemberPage
+          user={currentUser}
+          token={token}
+          navigate={navigate}
+          onLogout={handleLogout}
+        />
       ) : (
-        <MemberPage user={currentUser} />
+        <PostProductPage
+          navigate={navigate}
+          token={token}
+        />
       )}
 
       {banDialog && (
