@@ -540,6 +540,23 @@ body {
   gap: 6px;
 }
 
+.product-buy-btn {
+  background: var(--primary);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  margin-top: 14px;
+  padding: 10px 14px;
+  width: 100%;
+}
+
+.product-buy-btn:hover {
+  background: var(--primary-dark);
+}
+
 .load-more-container {
   display: flex;
   justify-content: center;

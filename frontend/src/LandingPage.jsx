@@ -61,6 +61,7 @@ export default function LandingPage({
   onActivityClick,
   onAccountClick,
   onPostProductClick,
+  onBuyProductClick,
   onLogout,
 }) {
   const [stats, setStats] = useState(DEFAULT_STATS);
@@ -325,6 +326,19 @@ export default function LandingPage({
                   <div className="product-meta">
                     <span>{product.ten_danh_muc || 'Chưa phân loại'}</span>
                   </div>
+                  <button
+                    type="button"
+                    className="product-buy-btn"
+                    onClick={() => {
+                      if (isAuthenticated && onBuyProductClick) {
+                        onBuyProductClick(product.ma_san_pham);
+                      } else if (onLoginClick) {
+                        onLoginClick();
+                      }
+                    }}
+                  >
+                    Mua hàng
+                  </button>
                 </div>
               </div>
             ))}
