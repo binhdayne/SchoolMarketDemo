@@ -39,7 +39,29 @@
 /* Content box lớn */
 .content-area { border: 1px solid #e5e7eb; padding: 24px; border-radius: 12px; background: white; }
 .content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.add-btn { background: #559e7a; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+.add-btn {
+  align-items: center;
+  background: #559e7a;
+  color: white;
+  border: none;
+  display: inline-flex;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.member-notice {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  color: #9a3412;
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+}
 
 /* --- CSS CHO DANH SÁCH SẢN PHẨM TRONG CONTENT AREA --- */
 .product-list {
@@ -51,8 +73,8 @@
 
 .product-card-row {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 14px;
   border: 1px solid #eaeaea;
   border-radius: 12px;
   padding: 16px;
@@ -64,6 +86,13 @@
 .product-card-row:hover {
   box-shadow: 0 4px 12px rgba(0,0,0,0.05);
   transform: translateY(-2px);
+}
+
+.product-main-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
 }
 
 .product-info-group {
@@ -183,6 +212,93 @@
   border-radius: 20px;
   font-size: 12px;
   font-weight: 500;
+}
+
+.status-badge.in-transaction {
+  background-color: #EFF6FF;
+  color: #2563EB;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.buyer-panel {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) 140px auto;
+  padding: 14px;
+}
+
+.buyer-info {
+  color: #334155;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 14px;
+}
+
+.buyer-info strong {
+  color: #111827;
+}
+
+.receipt-preview {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  height: 110px;
+  object-fit: contain;
+  width: 140px;
+}
+
+.seller-decision-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.seller-confirm-btn,
+.seller-reject-btn {
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 10px 14px;
+}
+
+.seller-confirm-btn {
+  background: #16a34a;
+}
+
+.seller-reject-btn {
+  background: #dc2626;
+}
+
+.seller-confirm-btn:disabled,
+.seller-reject-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+@media (max-width: 760px) {
+  .stats-row,
+  .product-main-row,
+  .tabs-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .buyer-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .receipt-preview {
+    width: 100%;
+  }
 }
 
 /* =========================================

@@ -10,8 +10,12 @@ router.get('/public', productController.getPublicProducts);
 router.get('/pending', auth, isAdmin, productController.getPendingProducts);
 router.get('/my-products', auth, productController.getMyProducts);
 router.get('/member-stats', auth, productController.getMemberStats);
+router.get('/:id/purchase-detail', auth, productController.getPurchaseDetail);
 
 router.post('/create', auth, upload.single('anh'), productController.createProduct);
+router.post('/:id/purchase', auth, upload.single('receipt'), productController.createPurchase);
+router.put('/purchases/:paymentId/confirm', auth, productController.confirmPurchase);
+router.put('/purchases/:paymentId/reject', auth, productController.rejectPurchase);
 router.put('/:id/approve', auth, isAdmin, productController.approveProduct);
 router.put('/:id/reject', auth, isAdmin, productController.rejectProduct);
 router.delete('/:id', auth, productController.deleteProduct);

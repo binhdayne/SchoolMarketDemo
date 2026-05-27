@@ -12,7 +12,7 @@ exports.getMemberStats = async (req, res) => {
         const [rows] = await promiseDb.execute(`
             SELECT
                 (SELECT COUNT(*) FROM san_pham WHERE ma_thanh_vien = ?) as spDaDang,
-                (SELECT COUNT(DISTINCT ma_san_pham) FROM thanh_toan WHERE ma_thanh_vien_nhan = ? AND trang_thai IN ('da_ban', 'da_thanh_toan', 'hoan_tat')) as daBan,
+                (SELECT COUNT(*) FROM thanh_toan WHERE ma_thanh_vien_nhan = ? AND trang_thai IN ('da_ban', 'da_thanh_toan', 'hoan_tat')) as daBan,
                 (SELECT COUNT(*) FROM san_pham WHERE ma_thanh_vien = ? AND so_phan_tram_quyen_gop > 0) as quyenGop
         `, [ma_thanh_vien, ma_thanh_vien, ma_thanh_vien]);
 

@@ -8,6 +8,7 @@ import PostProductPage from "./pages/PostProductPage";
 import DonationEventsPage from "./pages/DonationEventsPage";
 import ActivityPostsPage from "./pages/ActivityPostsPage";
 import MemberAccountPage from "./pages/MemberAccountPage";
+import ProductPurchasePage from "./pages/ProductPurchasePage";
 
 const API = "http://localhost:5000/api";
 
@@ -27,6 +28,7 @@ function App() {
   };
   const [token, setToken] = useState(localStorage.getItem("token"));
   const [authMode, setAuthMode] = useState(null);
+  const [selectedProductId, setSelectedProductId] = useState(null);
 
   const [currentUser, setCurrentUser] = useState(() => {
     const savedUser = localStorage.getItem("user");
@@ -218,7 +220,34 @@ function App() {
     setNotice("");
     setOrganizationManagerOpen(false);
     setOrganizationEventCreatorOpen(false);
-    setView("home");
+    setSelectedProductId(null);
+    setView(accountType === "thanh_vien" ? "home" : "dashboard");
+  };
+
+  const openProductPurchase = (productId) => {
+    if (accountType !== "thanh_vien") {
+      setView("dashboard");
+      return;
+    }
+
+    setSelectedProductId(productId);
+    setView("product-purchase");
+  };
+
+  const openPostProduct = () => {
+    if (accountType !== "thanh_vien") {
+      setView("dashboard");
+      return;
+    }
+
+    if (!String(currentUser?.ma_ngan_hang || "").trim()) {
+      setNotice("Bạn cần cập nhật mã ngân hàng/QR nhận tiền trước khi đăng bán sản phẩm.");
+      setView("dashboard");
+      return;
+    }
+
+    setNotice("");
+    setView("post-product");
   };
 
   const updateAccountStatus = async (account, action) => {
@@ -446,7 +475,7 @@ function App() {
     );
   }
 
-  if (view === "home") {
+  if (view === "home" && accountType === "thanh_vien") {
     return (
       <LandingPage
         isAuthenticated
@@ -457,7 +486,8 @@ function App() {
         onDonationClick={() => setView("donations")}
         onActivityClick={() => setView("activities")}
         onAccountClick={() => setView(accountType === "thanh_vien" ? "member-account" : "dashboard")}
-        onPostProductClick={() => setView(accountType === "thanh_vien" ? "post-product" : "dashboard")}
+        onPostProductClick={openPostProduct}
+        onBuyProductClick={openProductPurchase}
         onLogout={handleLogout}
       />
     );
@@ -585,6 +615,13 @@ function App() {
           token={token}
           onBackHome={goHome}
           onProfileUpdated={handleMemberProfileUpdate}
+        />
+      ) : view === "product-purchase" ? (
+        <ProductPurchasePage
+          productId={selectedProductId}
+          token={token}
+          navigate={navigate}
+          onBackHome={goHome}
         />
       ) : view === "dashboard" ? (
         <MemberPage

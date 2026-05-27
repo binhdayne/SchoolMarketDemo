@@ -4,6 +4,13 @@ const promiseDb = db.promise();
 const PRODUCT_STATUS = {
     PENDING: 'cho_duyet',
     APPROVED: 'da_duyet',
+    REJECTED: 'tu_choi',
+    IN_TRANSACTION: 'dang_giao_dich'
+};
+
+const PAYMENT_STATUS = {
+    PENDING_SELLER: 'cho_nguoi_ban_xac_nhan',
+    COMPLETED: 'hoan_tat',
     REJECTED: 'tu_choi'
 };
 
@@ -50,7 +57,7 @@ exports.getMemberStats = async (req, res) => {
         const [rows] = await promiseDb.execute(`
             SELECT
                 (SELECT COUNT(*) FROM san_pham WHERE ma_thanh_vien = ?) as spDaDang,
-                (SELECT COUNT(DISTINCT ma_san_pham) FROM thanh_toan WHERE ma_thanh_vien_nhan = ? AND trang_thai IN ('da_ban', 'da_thanh_toan', 'hoan_tat')) as daBan,
+                (SELECT COUNT(*) FROM thanh_toan WHERE ma_thanh_vien_nhan = ? AND trang_thai IN ('da_ban', 'da_thanh_toan', 'hoan_tat')) as daBan,
                 (SELECT COUNT(*) FROM san_pham WHERE ma_thanh_vien = ? AND so_phan_tram_quyen_gop > 0) as quyenGop
         `, [ma_thanh_vien, ma_thanh_vien, ma_thanh_vien]);
         res.json(rows[0]);
@@ -148,6 +155,25 @@ exports.createProduct = async (req, res) => {
         } = req.body;
 
         const ma_thanh_vien = req.user.id;
+        const accountType = req.user?.accountType || req.user?.role;
+
+        if (accountType !== 'thanh_vien') {
+            return res.status(403).json({
+                error: "Chỉ thành viên mới có thể đăng bán sản phẩm."
+            });
+        }
+
+        const [members] = await promiseDb.query(
+            "SELECT ma_ngan_hang FROM thanh_vien WHERE ma_thanh_vien = ? LIMIT 1",
+            [ma_thanh_vien]
+        );
+
+        if (!String(members[0]?.ma_ngan_hang || "").trim()) {
+            return res.status(400).json({
+                error: "Bạn cần cập nhật mã ngân hàng/QR nhận tiền trước khi đăng bán sản phẩm."
+            });
+        }
+
         const finalMaDanhMuc = (ma_danh_muc && ma_danh_muc !== "") ? parseInt(ma_danh_muc) : null;
         const finalMaHoatDong = (ma_hoat_dong && ma_hoat_dong !== "") ? parseInt(ma_hoat_dong) : null;
         const finalGia = gia ? parseFloat(gia) : 0;
@@ -174,22 +200,319 @@ exports.createProduct = async (req, res) => {
     }
 };
 
-exports.getMyProducts = (req, res) => {
+exports.getMyProducts = async (req, res) => {
     try {
         const ma_thanh_vien = req.user.id;
 
-        // Lấy sản phẩm, sắp xếp mới nhất lên đầu
-        const sql = "SELECT * FROM san_pham WHERE ma_thanh_vien = ? ORDER BY ma_san_pham DESC";
+        const [products] = await promiseDb.query(
+            `SELECT
+                sp.*,
+                dm.ten_danh_muc,
+                tt.ma_thanh_toan,
+                tt.anh_xac_nhan_giao_dich,
+                tt.trang_thai AS trang_thai_thanh_toan,
+                tt.ngay_gui AS ngay_gui_bien_lai,
+                buyer.ho_ten AS ten_nguoi_mua,
+                buyer.sdt AS sdt_nguoi_mua,
+                buyer.email AS email_nguoi_mua
+             FROM san_pham sp
+             LEFT JOIN danh_muc dm ON dm.ma_danh_muc = sp.ma_danh_muc
+             LEFT JOIN thanh_toan tt
+                ON tt.ma_san_pham = sp.ma_san_pham
+                AND tt.trang_thai = ?
+             LEFT JOIN thanh_vien buyer ON buyer.ma_thanh_vien = tt.ma_thanh_vien_gui
+             WHERE sp.ma_thanh_vien = ?
+             ORDER BY sp.ma_san_pham DESC`,
+            [PAYMENT_STATUS.PENDING_SELLER, ma_thanh_vien]
+        );
 
-        db.query(sql, [ma_thanh_vien], (err, results) => {
-            if (err) {
-                console.error("Lỗi khi lấy danh sách sản phẩm:", err);
-                return res.status(500).json({ error: "Lỗi Database" });
-            }
-            res.json(results);
+        res.json(products);
+    } catch (err) {
+        res.status(500).json({ error: "Không thể lấy danh sách sản phẩm của bạn: " + err.message });
+    }
+};
+
+exports.getPurchaseDetail = async (req, res) => {
+    const productId = req.params.id;
+    const buyerId = req.user?.id;
+    const accountType = req.user?.accountType || req.user?.role;
+
+    if (accountType !== 'thanh_vien') {
+        return res.status(403).json({ error: "Chỉ thành viên mới có thể mua sản phẩm." });
+    }
+
+    try {
+        await ensureProductImageColumn();
+
+        const [products] = await promiseDb.query(
+            `SELECT
+                sp.ma_san_pham,
+                sp.ten_san_pham,
+                sp.anh,
+                sp.mo_ta,
+                sp.gia,
+                sp.tinh_trang,
+                sp.trang_thai,
+                sp.so_luong,
+                sp.ngay_dang,
+                sp.ma_danh_muc,
+                dm.ten_danh_muc,
+                seller.ma_thanh_vien AS ma_nguoi_ban,
+                seller.ho_ten AS ten_nguoi_ban,
+                seller.ma_ngan_hang,
+                seller.so_tai_khoan,
+                seller.ten_ngan_hang
+             FROM san_pham sp
+             LEFT JOIN danh_muc dm ON dm.ma_danh_muc = sp.ma_danh_muc
+             LEFT JOIN thanh_vien seller ON seller.ma_thanh_vien = sp.ma_thanh_vien
+             WHERE sp.ma_san_pham = ?
+             LIMIT 1`,
+            [productId]
+        );
+
+        if (products.length === 0) {
+            return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
+        }
+
+        const product = products[0];
+
+        if (product.trang_thai !== PRODUCT_STATUS.APPROVED) {
+            return res.status(409).json({ error: "Sản phẩm này hiện không còn khả dụng để mua." });
+        }
+
+        if (Number(product.ma_nguoi_ban) === Number(buyerId)) {
+            return res.status(403).json({ error: "Bạn không thể mua sản phẩm của chính mình." });
+        }
+
+        if (!String(product.ma_ngan_hang || "").trim()) {
+            return res.status(409).json({ error: "Người bán chưa cập nhật QR nhận tiền." });
+        }
+
+        res.json(product);
+    } catch (err) {
+        res.status(500).json({ error: "Không thể lấy thông tin mua hàng: " + err.message });
+    }
+};
+
+exports.createPurchase = async (req, res) => {
+    const productId = req.params.id;
+    const buyerId = req.user?.id;
+    const accountType = req.user?.accountType || req.user?.role;
+
+    if (accountType !== 'thanh_vien') {
+        return res.status(403).json({ error: "Chỉ thành viên mới có thể mua sản phẩm." });
+    }
+
+    if (!req.file) {
+        return res.status(400).json({ error: "Vui lòng tải lên biên lai chuyển khoản." });
+    }
+
+    try {
+        await promiseDb.beginTransaction();
+
+        const [products] = await promiseDb.query(
+            `SELECT
+                sp.ma_san_pham,
+                sp.ten_san_pham,
+                sp.gia,
+                sp.trang_thai,
+                sp.ma_thanh_vien,
+                seller.ma_ngan_hang
+             FROM san_pham sp
+             LEFT JOIN thanh_vien seller ON seller.ma_thanh_vien = sp.ma_thanh_vien
+             WHERE sp.ma_san_pham = ?
+             FOR UPDATE`,
+            [productId]
+        );
+
+        if (products.length === 0) {
+            await promiseDb.rollback();
+            return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
+        }
+
+        const product = products[0];
+
+        if (product.trang_thai !== PRODUCT_STATUS.APPROVED) {
+            await promiseDb.rollback();
+            return res.status(409).json({ error: "Sản phẩm này hiện không còn khả dụng để mua." });
+        }
+
+        if (Number(product.ma_thanh_vien) === Number(buyerId)) {
+            await promiseDb.rollback();
+            return res.status(403).json({ error: "Bạn không thể mua sản phẩm của chính mình." });
+        }
+
+        if (!String(product.ma_ngan_hang || "").trim()) {
+            await promiseDb.rollback();
+            return res.status(409).json({ error: "Người bán chưa cập nhật QR nhận tiền." });
+        }
+
+        const receiptPath = `/uploads/${req.file.filename}`;
+
+        const [paymentResult] = await promiseDb.execute(
+            `INSERT INTO thanh_toan
+                (ma_thanh_vien_gui, ma_thanh_vien_nhan, ma_san_pham, so_tien_giao_dich,
+                 anh_xac_nhan_giao_dich, ghi_chu, trang_thai)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+                buyerId,
+                product.ma_thanh_vien,
+                product.ma_san_pham,
+                product.gia || 0,
+                receiptPath,
+                req.body?.ghi_chu || null,
+                PAYMENT_STATUS.PENDING_SELLER
+            ]
+        );
+
+        await promiseDb.execute(
+            "UPDATE san_pham SET trang_thai = ? WHERE ma_san_pham = ?",
+            [PRODUCT_STATUS.IN_TRANSACTION, product.ma_san_pham]
+        );
+
+        await promiseDb.commit();
+
+        res.status(201).json({
+            message: "Đã gửi biên lai cho người bán xác nhận. Sản phẩm đã được ẩn khỏi trang chủ.",
+            ma_thanh_toan: paymentResult.insertId,
+            trang_thai: PAYMENT_STATUS.PENDING_SELLER
         });
     } catch (err) {
-        res.status(500).json({ error: "Lỗi hệ thống" });
+        try {
+            await promiseDb.rollback();
+        } catch (rollbackErr) {
+            console.error("Không thể rollback giao dịch mua hàng:", rollbackErr);
+        }
+        res.status(500).json({ error: "Không thể ghi nhận giao dịch mua hàng: " + err.message });
+    }
+};
+
+exports.confirmPurchase = async (req, res) => {
+    const paymentId = req.params.paymentId;
+    const sellerId = req.user?.id;
+    const accountType = req.user?.accountType || req.user?.role;
+
+    if (accountType !== 'thanh_vien') {
+        return res.status(403).json({ error: "Chỉ người bán là thành viên mới có thể xác nhận giao dịch." });
+    }
+
+    try {
+        await promiseDb.beginTransaction();
+
+        const [payments] = await promiseDb.query(
+            `SELECT tt.ma_thanh_toan, tt.ma_san_pham, tt.trang_thai, sp.ma_thanh_vien
+             FROM thanh_toan tt
+             INNER JOIN san_pham sp ON sp.ma_san_pham = tt.ma_san_pham
+             WHERE tt.ma_thanh_toan = ?
+             FOR UPDATE`,
+            [paymentId]
+        );
+
+        if (payments.length === 0) {
+            await promiseDb.rollback();
+            return res.status(404).json({ error: "Không tìm thấy giao dịch cần xác nhận." });
+        }
+
+        const payment = payments[0];
+
+        if (Number(payment.ma_thanh_vien) !== Number(sellerId)) {
+            await promiseDb.rollback();
+            return res.status(403).json({ error: "Bạn không có quyền xác nhận giao dịch này." });
+        }
+
+        if (payment.trang_thai !== PAYMENT_STATUS.PENDING_SELLER) {
+            await promiseDb.rollback();
+            return res.status(409).json({ error: "Giao dịch này đã được xử lý trước đó." });
+        }
+
+        await promiseDb.execute(
+            "UPDATE thanh_toan SET trang_thai = ? WHERE ma_thanh_toan = ?",
+            [PAYMENT_STATUS.COMPLETED, paymentId]
+        );
+
+        await promiseDb.execute(
+            "DELETE FROM san_pham WHERE ma_san_pham = ?",
+            [payment.ma_san_pham]
+        );
+
+        await promiseDb.commit();
+
+        res.json({
+            message: "Đã xác nhận giao dịch và xóa sản phẩm khỏi hệ thống.",
+            ma_san_pham: payment.ma_san_pham
+        });
+    } catch (err) {
+        try {
+            await promiseDb.rollback();
+        } catch (rollbackErr) {
+            console.error("Không thể rollback xác nhận giao dịch:", rollbackErr);
+        }
+        res.status(500).json({ error: "Không thể xác nhận giao dịch: " + err.message });
+    }
+};
+
+exports.rejectPurchase = async (req, res) => {
+    const paymentId = req.params.paymentId;
+    const sellerId = req.user?.id;
+    const accountType = req.user?.accountType || req.user?.role;
+
+    if (accountType !== 'thanh_vien') {
+        return res.status(403).json({ error: "Chỉ người bán là thành viên mới có thể từ chối giao dịch." });
+    }
+
+    try {
+        await promiseDb.beginTransaction();
+
+        const [payments] = await promiseDb.query(
+            `SELECT tt.ma_thanh_toan, tt.ma_san_pham, tt.trang_thai, sp.ma_thanh_vien
+             FROM thanh_toan tt
+             INNER JOIN san_pham sp ON sp.ma_san_pham = tt.ma_san_pham
+             WHERE tt.ma_thanh_toan = ?
+             FOR UPDATE`,
+            [paymentId]
+        );
+
+        if (payments.length === 0) {
+            await promiseDb.rollback();
+            return res.status(404).json({ error: "Không tìm thấy giao dịch cần xử lý." });
+        }
+
+        const payment = payments[0];
+
+        if (Number(payment.ma_thanh_vien) !== Number(sellerId)) {
+            await promiseDb.rollback();
+            return res.status(403).json({ error: "Bạn không có quyền xử lý giao dịch này." });
+        }
+
+        if (payment.trang_thai !== PAYMENT_STATUS.PENDING_SELLER) {
+            await promiseDb.rollback();
+            return res.status(409).json({ error: "Giao dịch này đã được xử lý trước đó." });
+        }
+
+        await promiseDb.execute(
+            "UPDATE thanh_toan SET trang_thai = ? WHERE ma_thanh_toan = ?",
+            [PAYMENT_STATUS.REJECTED, paymentId]
+        );
+
+        await promiseDb.execute(
+            "UPDATE san_pham SET trang_thai = ? WHERE ma_san_pham = ?",
+            [PRODUCT_STATUS.APPROVED, payment.ma_san_pham]
+        );
+
+        await promiseDb.commit();
+
+        res.json({
+            message: "Đã từ chối giao dịch. Sản phẩm đã hiện lại trên trang chủ.",
+            ma_san_pham: payment.ma_san_pham,
+            trang_thai: PRODUCT_STATUS.APPROVED
+        });
+    } catch (err) {
+        try {
+            await promiseDb.rollback();
+        } catch (rollbackErr) {
+            console.error("Không thể rollback từ chối giao dịch:", rollbackErr);
+        }
+        res.status(500).json({ error: "Không thể từ chối giao dịch: " + err.message });
     }
 };
 
@@ -271,6 +594,10 @@ exports.deleteProduct = (req, res) => {
 
             if (results.length === 0) {
                 return res.status(403).json({ error: "Bạn không có quyền xóa sản phẩm này!" });
+            }
+
+            if (results[0].trang_thai === PRODUCT_STATUS.IN_TRANSACTION) {
+                return res.status(409).json({ error: "Sản phẩm đang có người mua, vui lòng xác nhận hoặc từ chối giao dịch trước." });
             }
 
             // 2. Nếu hợp lệ, tiến hành xóa
