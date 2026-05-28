@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import {
   LuSearch, LuFilter, LuHeart, LuShoppingBag, LuCalendar,
-  LuClock, LuChevronRight, LuTrendingUp, LuUsers, LuPackage, LuMessagesSquare
+  LuClock, LuChevronRight, LuTrendingUp, LuUsers, LuPackage, LuMessagesSquare,
+  LuMinus, LuPlus, LuX
 } from 'react-icons/lu';
 import './LandingPage.css';
 
@@ -72,9 +73,17 @@ export default function LandingPage({
   const [searchTerm, setSearchTerm] = useState('');
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadingActivityPosts, setLoadingActivityPosts] = useState(true);
+  const [selectedBuyProduct, setSelectedBuyProduct] = useState(null);
+  const [buyQuantity, setBuyQuantity] = useState(1);
 
   const displayName = user?.ho_ten || user?.ten_to_chuc || 'Người dùng';
   const roleLabel = accountType === 'to_chuc' ? 'Tổ chức' : accountType === 'admin' ? 'Admin' : 'Thành viên';
+  const selectedBuyStock = Number(selectedBuyProduct?.so_luong || 0);
+  const normalizedBuyQuantity = Math.min(
+    Math.max(1, Number(buyQuantity) || 1),
+    Math.max(1, selectedBuyStock)
+  );
+  const selectedBuyTotal = Number(selectedBuyProduct?.gia || 0) * normalizedBuyQuantity;
 
   useEffect(() => {
     let isMounted = true;
@@ -135,6 +144,36 @@ export default function LandingPage({
     });
   }, [activeCategory, products, searchTerm]);
 
+  const updateBuyQuantity = (nextValue) => {
+    const maxQuantity = Math.max(1, selectedBuyStock);
+    const nextQuantity = Math.min(Math.max(1, Number(nextValue) || 1), maxQuantity);
+    setBuyQuantity(nextQuantity);
+  };
+
+  const openBuyDialog = (product) => {
+    if (!isAuthenticated) {
+      if (onLoginClick) onLoginClick();
+      return;
+    }
+
+    const availableQuantity = Number(product.so_luong || 0);
+    if (availableQuantity <= 0) return;
+
+    setSelectedBuyProduct(product);
+    setBuyQuantity(1);
+  };
+
+  const closeBuyDialog = () => {
+    setSelectedBuyProduct(null);
+    setBuyQuantity(1);
+  };
+
+  const confirmBuyQuantity = () => {
+    if (!selectedBuyProduct || !onBuyProductClick) return;
+    onBuyProductClick(selectedBuyProduct.ma_san_pham, normalizedBuyQuantity);
+    closeBuyDialog();
+  };
+
   return (
     <div className="app-wrapper">
       <button
@@ -166,9 +205,9 @@ export default function LandingPage({
             <button
               type="button"
               className="nav-link"
-              onClick={isAuthenticated ? onDashboardClick : undefined}
+              onClick={isAuthenticated ? onDashboardClick : onLoginClick}
             >
-              <LuShoppingBag size={18} /> {isAuthenticated ? 'Đăng bán cá nhân' : 'Mua bán'}
+              <LuShoppingBag size={18} /> Đăng bán cá nhân
             </button>
             <button type="button" className="nav-link" onClick={onDonationClick}><LuHeart size={18} /> Quyên góp</button>
             <button type="button" className="nav-link" onClick={onActivityClick}><LuCalendar size={18} /> Hoạt động</button>
@@ -325,17 +364,13 @@ export default function LandingPage({
                   <p className="product-description">{getDescription(product)}</p>
                   <div className="product-meta">
                     <span>{product.ten_danh_muc || 'Chưa phân loại'}</span>
+                    <span>Số lượng: {formatNumber(product.so_luong || 0)}</span>
                   </div>
                   <button
                     type="button"
                     className="product-buy-btn"
-                    onClick={() => {
-                      if (isAuthenticated && onBuyProductClick) {
-                        onBuyProductClick(product.ma_san_pham);
-                      } else if (onLoginClick) {
-                        onLoginClick();
-                      }
-                    }}
+                    onClick={() => openBuyDialog(product)}
+                    disabled={Number(product.so_luong || 0) <= 0}
                   >
                     Mua hàng
                   </button>
@@ -440,6 +475,78 @@ export default function LandingPage({
           </div>
         </div>
       </footer>
+
+      {selectedBuyProduct && (
+        <div className="buy-modal-overlay" role="presentation">
+          <div className="buy-modal" role="dialog" aria-modal="true" aria-labelledby="buy-modal-title">
+            <div className="buy-modal-header">
+              <h2 id="buy-modal-title">Chọn số lượng</h2>
+              <button type="button" className="buy-modal-close" onClick={closeBuyDialog} aria-label="Đóng">
+                <LuX size={20} />
+              </button>
+            </div>
+
+            <div className="buy-modal-product">
+              <img
+                src={getAssetUrl(selectedBuyProduct.anh)}
+                alt={selectedBuyProduct.ten_san_pham || 'Sản phẩm'}
+                onError={(event) => {
+                  event.currentTarget.onerror = null;
+                  event.currentTarget.src = '/images/school-market-icon-v2.png';
+                }}
+              />
+              <div>
+                <h3>{selectedBuyProduct.ten_san_pham}</h3>
+                <p>{formatCurrency(selectedBuyProduct.gia)} / sản phẩm</p>
+                <span>Còn {formatNumber(selectedBuyStock)} sản phẩm</span>
+              </div>
+            </div>
+
+            <div className="buy-quantity-row">
+              <span>Số lượng mua</span>
+              <div className="quantity-stepper">
+                <button
+                  type="button"
+                  onClick={() => updateBuyQuantity(normalizedBuyQuantity - 1)}
+                  disabled={normalizedBuyQuantity <= 1}
+                  aria-label="Giảm số lượng"
+                >
+                  <LuMinus size={16} />
+                </button>
+                <input
+                  type="number"
+                  min="1"
+                  max={Math.max(1, selectedBuyStock)}
+                  value={normalizedBuyQuantity}
+                  onChange={(event) => updateBuyQuantity(event.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => updateBuyQuantity(normalizedBuyQuantity + 1)}
+                  disabled={normalizedBuyQuantity >= selectedBuyStock}
+                  aria-label="Tăng số lượng"
+                >
+                  <LuPlus size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className="buy-total-row">
+              <span>Tổng tiền cần chuyển</span>
+              <strong>{formatCurrency(selectedBuyTotal)}</strong>
+            </div>
+
+            <div className="buy-modal-actions">
+              <button type="button" className="btn-secondary" onClick={closeBuyDialog}>
+                Hủy
+              </button>
+              <button type="button" className="btn-primary" onClick={confirmBuyQuantity}>
+                Tiếp tục mua hàng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

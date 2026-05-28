@@ -22,6 +22,7 @@ function getAssetUrl(path) {
 }
 
 function getProductStatus(product) {
+  if (product.ma_thanh_toan) return { className: 'in-transaction', label: 'Chờ xác nhận' };
   if (product.trang_thai === 'cho_duyet') return { className: 'pending', label: 'Chờ duyệt' };
   if (product.trang_thai === 'da_duyet') return { className: 'approved', label: 'Đã duyệt' };
   if (product.trang_thai === 'dang_giao_dich') return { className: 'in-transaction', label: 'Đã có người mua' };
@@ -117,8 +118,8 @@ export default function MemberPage({ user, token, navigate }) {
     const isConfirm = action === 'confirm';
     const ok = window.confirm(
       isConfirm
-        ? 'Xác nhận đã nhận tiền và xóa hẳn sản phẩm khỏi hệ thống?'
-        : 'Từ chối giao dịch và hiện lại sản phẩm trên trang chủ?'
+        ? 'Xác nhận đã nhận tiền cho giao dịch này?'
+        : 'Từ chối giao dịch và cộng lại số lượng sản phẩm?'
     );
 
     if (!ok) return;
@@ -215,10 +216,10 @@ export default function MemberPage({ user, token, navigate }) {
             <div className="product-list">
               {myProducts.map((product) => {
                 const status = getProductStatus(product);
-                const hasBuyer = product.trang_thai === 'dang_giao_dich' && product.ma_thanh_toan;
+                const hasBuyer = Boolean(product.ma_thanh_toan);
 
                 return (
-                  <div key={product.ma_san_pham} className="product-card-row">
+                  <div key={`${product.ma_san_pham}-${product.ma_thanh_toan || 'product'}`} className="product-card-row">
                     <div className="product-main-row">
                       <div className="product-info-group">
                         <img
@@ -235,6 +236,7 @@ export default function MemberPage({ user, token, navigate }) {
                             <span className={`status-badge ${status.className}`}>{status.label}</span>
                           </div>
                           <span className="product-time">{product.ten_danh_muc || 'Chưa phân loại'}</span>
+                          <span className="product-time">Còn lại: {product.so_luong || 0}</span>
                         </div>
                       </div>
 
@@ -268,6 +270,8 @@ export default function MemberPage({ user, token, navigate }) {
                           <strong>Người mua:</strong> {product.ten_nguoi_mua || 'Thành viên'}
                           <span>SĐT: {product.sdt_nguoi_mua || 'Chưa cập nhật'}</span>
                           <span>Email: {product.email_nguoi_mua || 'Chưa cập nhật'}</span>
+                          <span>Số lượng mua: {product.so_luong_mua || 1}</span>
+                          <span>Số tiền: {formatPrice(product.so_tien_giao_dich || product.gia)}</span>
                         </div>
                         {product.anh_xac_nhan_giao_dich && (
                           <img

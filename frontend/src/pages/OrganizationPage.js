@@ -15,6 +15,8 @@ const initialEventForm = {
   han_ket_thuc: "",
   anh_minh_hoa: "",
   hinh_thuc_quyen_gop: "nhan_tien_chuyen_khoan",
+  ma_qr_quyen_gop: "",
+  so_tien_toi_thieu: "",
 };
 
 const donationTypeOptions = [
@@ -42,13 +44,21 @@ function OrganizationPage({
   const [eventError, setEventError] = useState("");
   const [approvedEvents, setApprovedEvents] = useState([]);
   const [loadingApprovedEvents, setLoadingApprovedEvents] = useState(false);
+  const [approvedEventsMessage, setApprovedEventsMessage] = useState("");
   const [approvedEventsError, setApprovedEventsError] = useState("");
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [deletingEventId, setDeletingEventId] = useState(null);
+  const [pendingContributions, setPendingContributions] = useState([]);
+  const [loadingContributions, setLoadingContributions] = useState(false);
+  const [contributionMessage, setContributionMessage] = useState("");
+  const [contributionError, setContributionError] = useState("");
+  const [confirmingContributionId, setConfirmingContributionId] = useState(null);
 
   const loadApprovedEvents = useCallback(async () => {
     if (!token) return;
 
     setLoadingApprovedEvents(true);
+    setApprovedEventsMessage("");
     setApprovedEventsError("");
 
     try {
@@ -63,13 +73,32 @@ function OrganizationPage({
     }
   }, [token]);
 
+  const loadPendingContributions = useCallback(async () => {
+    if (!token) return;
+
+    setLoadingContributions(true);
+    setContributionError("");
+
+    try {
+      const res = await axios.get(`${API}/campaigns/contributions/pending`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setPendingContributions(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      setContributionError(err.response?.data?.message || "Không thể tải biên lai chờ xác nhận.");
+    } finally {
+      setLoadingContributions(false);
+    }
+  }, [token]);
+
   useEffect(() => {
     setForm(getProfileForm(user));
   }, [user]);
 
   useEffect(() => {
     loadApprovedEvents();
-  }, [loadApprovedEvents]);
+    loadPendingContributions();
+  }, [loadApprovedEvents, loadPendingContributions]);
 
   const handleChange = (event) => {
     setForm((currentForm) => ({ ...currentForm, [event.target.name]: event.target.value }));
@@ -139,6 +168,29 @@ function OrganizationPage({
     }
   };
 
+  const handleEventQrFileChange = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setEventError("Vui lòng chọn đúng file ảnh QR quyên góp.");
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      const ma_qr_quyen_gop = await resizeImageFile(file);
+      setEventForm((currentForm) => ({ ...currentForm, ma_qr_quyen_gop }));
+      setEventMessage("");
+      setEventError("");
+    } catch {
+      setEventError("Không thể đọc file QR này. Vui lòng chọn ảnh khác.");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
   const handleCloseEventCreator = () => {
     setEventForm(initialEventForm);
     setEventMessage("");
@@ -154,6 +206,19 @@ function OrganizationPage({
       return;
     }
 
+    if (!eventForm.ma_qr_quyen_gop) {
+      setEventError("Vui lòng tải lên mã QR nhận quyên góp.");
+      return;
+    }
+
+    if (
+      eventForm.hinh_thuc_quyen_gop === "nhan_tien_chuyen_khoan" &&
+      Number(eventForm.so_tien_toi_thieu || 0) <= 0
+    ) {
+      setEventError("Vui lòng nhập số tiền tối thiểu khi nhận tiền chuyển khoản.");
+      return;
+    }
+
     setCreatingEvent(true);
     setEventMessage("");
     setEventError("");
@@ -165,10 +230,65 @@ function OrganizationPage({
 
       setEventForm(initialEventForm);
       setEventMessage(res.data.message || "Đã tạo sự kiện quyên góp.");
+      loadPendingContributions();
     } catch (err) {
       setEventError(err.response?.data?.message || "Không thể tạo sự kiện quyên góp.");
     } finally {
       setCreatingEvent(false);
+    }
+  };
+
+  const handleDeleteEvent = async (event) => {
+    const ok = window.confirm(`Xóa sự kiện "${event.ten_hoat_dong}"?`);
+    if (!ok) return;
+
+    setDeletingEventId(event.ma_hoat_dong);
+    setApprovedEventsMessage("");
+    setApprovedEventsError("");
+
+    try {
+      const res = await axios.delete(`${API}/campaigns/${event.ma_hoat_dong}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      setApprovedEvents((currentEvents) =>
+        currentEvents.filter((item) => item.ma_hoat_dong !== event.ma_hoat_dong)
+      );
+      setApprovedEventsMessage(res.data.message || "Đã xóa sự kiện.");
+      if (selectedEvent?.ma_hoat_dong === event.ma_hoat_dong) {
+        setSelectedEvent(null);
+      }
+    } catch (err) {
+      setApprovedEventsError(err.response?.data?.message || "Không thể xóa sự kiện.");
+    } finally {
+      setDeletingEventId(null);
+    }
+  };
+
+  const handleConfirmContribution = async (contribution) => {
+    const ok = window.confirm(`Xác nhận biên lai của ${contribution.ho_ten}?`);
+    if (!ok) return;
+
+    setConfirmingContributionId(contribution.ma_dong_gop);
+    setContributionMessage("");
+    setContributionError("");
+
+    try {
+      const res = await axios.put(
+        `${API}/campaigns/contributions/${contribution.ma_dong_gop}/confirm`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setContributionMessage(res.data.message || "Đã xác nhận biên lai quyên góp.");
+      setPendingContributions((currentContributions) =>
+        currentContributions.filter((item) => item.ma_dong_gop !== contribution.ma_dong_gop)
+      );
+      await loadApprovedEvents();
+    } catch (err) {
+      setContributionError(err.response?.data?.message || "Không thể xác nhận biên lai.");
+    } finally {
+      setConfirmingContributionId(null);
     }
   };
 
@@ -202,6 +322,7 @@ function OrganizationPage({
           error={eventError}
           onChange={handleEventChange}
           onImageChange={handleEventImageFileChange}
+          onQrImageChange={handleEventQrFileChange}
           onClose={handleCloseEventCreator}
           onSubmit={handleCreateEvent}
         />
@@ -234,8 +355,20 @@ function OrganizationPage({
           <OrganizationEventsSection
             events={approvedEvents}
             loading={loadingApprovedEvents}
+            message={approvedEventsMessage}
             error={approvedEventsError}
             onSelectEvent={setSelectedEvent}
+            deletingEventId={deletingEventId}
+            onDeleteEvent={handleDeleteEvent}
+          />
+
+          <OrganizationContributionRequests
+            contributions={pendingContributions}
+            loading={loadingContributions}
+            message={contributionMessage}
+            error={contributionError}
+            confirmingContributionId={confirmingContributionId}
+            onConfirmContribution={handleConfirmContribution}
           />
         </>
       )}
@@ -247,7 +380,7 @@ function OrganizationPage({
   );
 }
 
-function OrganizationEventsSection({ events, loading, error, onSelectEvent }) {
+function OrganizationEventsSection({ events, loading, message, error, deletingEventId, onSelectEvent, onDeleteEvent }) {
   return (
     <section style={styles.eventsSection} aria-label="Sự kiện của tổ chức">
       <div style={styles.sectionHeader}>
@@ -259,25 +392,100 @@ function OrganizationEventsSection({ events, loading, error, onSelectEvent }) {
 
       {loading ? (
         <p style={styles.emptyText}>Đang tải sự kiện...</p>
-      ) : error ? (
-        <p style={styles.errorMessage}>{error}</p>
-      ) : events.length === 0 ? (
-        <p style={styles.emptyText}>Chưa có sự kiện nào được duyệt.</p>
       ) : (
-        <div style={styles.eventCards}>
-          {events.map((event) => (
-            <button
-              key={event.ma_hoat_dong}
-              type="button"
-              onClick={() => onSelectEvent(event)}
-              style={styles.eventCard}
-            >
-              <img src={event.anh_minh_hoa} alt="" style={styles.eventCardImage} />
-              <div style={styles.eventCardBody}>
-                <h3 style={styles.eventCardTitle}>{event.ten_hoat_dong}</h3>
-                <p style={styles.eventCardText}>{event.mo_ta}</p>
+        <>
+          {message && <p style={styles.successMessage}>{message}</p>}
+          {error && <p style={styles.errorMessage}>{error}</p>}
+          {events.length === 0 ? (
+            <p style={styles.emptyText}>Chưa có sự kiện nào được duyệt.</p>
+          ) : (
+            <div style={styles.eventCards}>
+              {events.map((event) => (
+                <article
+                  key={event.ma_hoat_dong}
+                  style={styles.eventCard}
+                >
+                  <button
+                    type="button"
+                    onClick={() => onSelectEvent(event)}
+                    style={styles.eventCardPreview}
+                  >
+                    <img src={event.anh_minh_hoa} alt="" style={styles.eventCardImage} />
+                    <div style={styles.eventCardBody}>
+                      <h3 style={styles.eventCardTitle}>{event.ten_hoat_dong}</h3>
+                      <p style={styles.eventCardText}>{event.mo_ta}</p>
+                    </div>
+                  </button>
+                  <div style={styles.eventCardActions}>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteEvent(event)}
+                      style={styles.deleteButton}
+                      disabled={deletingEventId === event.ma_hoat_dong}
+                    >
+                      {deletingEventId === event.ma_hoat_dong ? "Đang xóa..." : "Xóa sự kiện"}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function OrganizationContributionRequests({
+  contributions,
+  loading,
+  message,
+  error,
+  confirmingContributionId,
+  onConfirmContribution,
+}) {
+  return (
+    <section style={styles.eventsSection} aria-label="Biên lai quyên góp chờ xác nhận">
+      <div style={styles.sectionHeader}>
+        <div>
+          <h2 style={styles.sectionTitle}>Biên lai chờ xác nhận</h2>
+          <p style={styles.sectionDescription}>Thành viên gửi biên lai chuyển khoản cho sự kiện nhận tiền.</p>
+        </div>
+      </div>
+
+      {message && <p style={styles.successMessage}>{message}</p>}
+      {error && <p style={styles.errorMessage}>{error}</p>}
+
+      {loading ? (
+        <p style={styles.emptyText}>Đang tải biên lai...</p>
+      ) : contributions.length === 0 ? (
+        <p style={styles.emptyText}>Chưa có biên lai nào đang chờ xác nhận.</p>
+      ) : (
+        <div style={styles.contributionCards}>
+          {contributions.map((contribution) => (
+            <article key={contribution.ma_dong_gop} style={styles.contributionCard}>
+              <img
+                src={getAssetUrl(contribution.anh_bien_lai)}
+                alt="Biên lai quyên góp"
+                style={styles.contributionReceipt}
+              />
+              <div style={styles.contributionBody}>
+                <h3 style={styles.eventCardTitle}>{contribution.ten_hoat_dong}</h3>
+                <p style={styles.eventCardText}>
+                  {contribution.ho_ten || "Thành viên"} - {contribution.lop || "Chưa cập nhật lớp"}
+                </p>
+                <p style={styles.eventCardText}>Số tiền: {formatCurrency(contribution.so_tien)}</p>
+                {contribution.ghi_chu && <p style={styles.eventCardText}>Ghi chú: {contribution.ghi_chu}</p>}
+                <button
+                  type="button"
+                  onClick={() => onConfirmContribution(contribution)}
+                  style={styles.saveButton}
+                  disabled={confirmingContributionId === contribution.ma_dong_gop}
+                >
+                  {confirmingContributionId === contribution.ma_dong_gop ? "Đang xác nhận..." : "Xác nhận"}
+                </button>
               </div>
-            </button>
+            </article>
           ))}
         </div>
       )}
@@ -314,7 +522,32 @@ function EventDetailDialog({ event, onClose }) {
             <dt>Hình thức</dt>
             <dd>{getDonationTypeLabel(event.hinh_thuc_quyen_gop)}</dd>
           </div>
+          <div>
+            <dt>Số tiền tối thiểu</dt>
+            <dd>{formatCurrency(event.so_tien_toi_thieu)}</dd>
+          </div>
         </dl>
+        {event.ma_qr_quyen_gop && (
+          <div style={styles.detailQrBox}>
+            <h3 style={styles.eventCardTitle}>QR nhận quyên góp</h3>
+            <img src={event.ma_qr_quyen_gop} alt="QR nhận quyên góp" style={styles.detailQrImage} />
+          </div>
+        )}
+        <div style={styles.donorListBox}>
+          <h3 style={styles.eventCardTitle}>Người đã quyên góp</h3>
+          {event.nguoi_quyen_gop?.length ? (
+            <ul style={styles.donorList}>
+              {event.nguoi_quyen_gop.map((donor, index) => (
+                <li key={`${donor.ho_ten}-${donor.lop}-${index}`} style={styles.donorListItem}>
+                  <strong>{donor.ho_ten}</strong>
+                  <span>{donor.lop || "Chưa cập nhật lớp"}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p style={styles.emptyText}>Chưa có thành viên nào được xác nhận quyên góp.</p>
+          )}
+        </div>
       </section>
     </div>
   );
@@ -327,6 +560,7 @@ function DonationEventCreator({
   error,
   onChange,
   onImageChange,
+  onQrImageChange,
   onClose,
   onSubmit,
 }) {
@@ -360,6 +594,22 @@ function DonationEventCreator({
                   <div style={styles.eventImagePlaceholder}>Chưa chọn ảnh</div>
                 )}
                 <input type="file" accept="image/*" onChange={onImageChange} style={styles.fileInput} />
+              </div>
+            </label>
+
+            <label style={styles.field}>
+              <span style={styles.fieldLabel}>Mã QR nhận quyên góp</span>
+              <div style={styles.eventImageRow}>
+                {form.ma_qr_quyen_gop ? (
+                  <img
+                    src={form.ma_qr_quyen_gop}
+                    alt="Mã QR nhận quyên góp"
+                    style={styles.qrImagePreview}
+                  />
+                ) : (
+                  <div style={styles.qrImagePlaceholder}>Chưa chọn QR</div>
+                )}
+                <input type="file" accept="image/*" onChange={onQrImageChange} style={styles.fileInput} />
               </div>
             </label>
 
@@ -410,6 +660,18 @@ function DonationEventCreator({
               placeholder="Nhập địa điểm tổ chức"
               required
             />
+
+            {form.hinh_thuc_quyen_gop === "nhan_tien_chuyen_khoan" && (
+              <EditableField
+                label="Số tiền tối thiểu"
+                name="so_tien_toi_thieu"
+                type="number"
+                value={form.so_tien_toi_thieu}
+                onChange={onChange}
+                placeholder="Ví dụ: 50000"
+                required
+              />
+            )}
 
             <fieldset style={styles.radioFieldset}>
               <legend style={styles.fieldLabel}>Hình thức quyên góp</legend>
@@ -611,6 +873,20 @@ function formatDate(value) {
   return new Date(value).toLocaleDateString("vi-VN");
 }
 
+function formatCurrency(value) {
+  return Number(value || 0).toLocaleString("vi-VN", {
+    style: "currency",
+    currency: "VND",
+    maximumFractionDigits: 0,
+  });
+}
+
+function getAssetUrl(path) {
+  if (!path) return DEFAULT_ORGANIZATION_AVATAR;
+  if (/^(https?:|data:image\/)/i.test(path)) return path;
+  return `http://localhost:5000${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 function getDonationTypeLabel(type) {
   if (type === "nhan_tien_chuyen_khoan") return "Nhận tiền chuyển khoản";
   if (type === "ban_do_quyen_gop") return "Bán đồ quyên góp";
@@ -748,13 +1024,24 @@ const styles = {
     border: "1px solid #e5e7eb",
     borderRadius: 8,
     color: "#111827",
-    cursor: "pointer",
     display: "flex",
     flexDirection: "column",
     font: "inherit",
     overflow: "hidden",
     padding: 0,
     textAlign: "left",
+  },
+  eventCardPreview: {
+    backgroundColor: "transparent",
+    border: "none",
+    color: "#111827",
+    cursor: "pointer",
+    display: "flex",
+    flexDirection: "column",
+    font: "inherit",
+    padding: 0,
+    textAlign: "left",
+    width: "100%",
   },
   eventCardImage: {
     aspectRatio: "16 / 9",
@@ -774,6 +1061,48 @@ const styles = {
     color: "#4b5563",
     lineHeight: 1.45,
     margin: 0,
+  },
+  eventCardActions: {
+    borderTop: "1px solid #f3f4f6",
+    display: "flex",
+    justifyContent: "flex-end",
+    padding: 12,
+  },
+  contributionCards: {
+    display: "grid",
+    gap: 14,
+    gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+  },
+  contributionCard: {
+    backgroundColor: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 8,
+    display: "grid",
+    gap: 14,
+    gridTemplateColumns: "140px minmax(0, 1fr)",
+    padding: 14,
+  },
+  contributionReceipt: {
+    backgroundColor: "#f9fafb",
+    border: "1px solid #e5e7eb",
+    borderRadius: 8,
+    height: 140,
+    objectFit: "contain",
+    width: 140,
+  },
+  contributionBody: {
+    alignContent: "start",
+    display: "grid",
+    gap: 8,
+  },
+  deleteButton: {
+    backgroundColor: "#dc2626",
+    border: "none",
+    borderRadius: 6,
+    color: "#fff",
+    cursor: "pointer",
+    fontWeight: 700,
+    padding: "9px 12px",
   },
   emptyText: {
     color: "#4b5563",
@@ -826,6 +1155,44 @@ const styles = {
     gap: 12,
     gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
     margin: 0,
+  },
+  detailQrBox: {
+    borderTop: "1px solid #e5e7eb",
+    display: "grid",
+    gap: 10,
+    marginTop: 16,
+    paddingTop: 16,
+  },
+  detailQrImage: {
+    backgroundColor: "#f9fafb",
+    border: "1px dashed #cbd5e1",
+    borderRadius: 8,
+    maxHeight: 220,
+    objectFit: "contain",
+    width: "100%",
+  },
+  donorListBox: {
+    borderTop: "1px solid #e5e7eb",
+    display: "grid",
+    gap: 10,
+    marginTop: 16,
+    paddingTop: 16,
+  },
+  donorList: {
+    display: "grid",
+    gap: 8,
+    listStyle: "none",
+    margin: 0,
+    padding: 0,
+  },
+  donorListItem: {
+    alignItems: "center",
+    backgroundColor: "#f9fafb",
+    borderRadius: 8,
+    display: "flex",
+    gap: 10,
+    justifyContent: "space-between",
+    padding: "9px 11px",
   },
   accountManager: {
     backgroundColor: "#fff",
@@ -906,6 +1273,24 @@ const styles = {
     width: "100%",
   },
   eventImagePlaceholder: {
+    alignItems: "center",
+    backgroundColor: "#f9fafb",
+    border: "1px dashed #cbd5e1",
+    borderRadius: 8,
+    color: "#6b7280",
+    display: "flex",
+    height: 180,
+    justifyContent: "center",
+  },
+  qrImagePreview: {
+    backgroundColor: "#f9fafb",
+    border: "1px solid #d1d5db",
+    borderRadius: 8,
+    height: 180,
+    objectFit: "contain",
+    width: "100%",
+  },
+  qrImagePlaceholder: {
     alignItems: "center",
     backgroundColor: "#f9fafb",
     border: "1px dashed #cbd5e1",
