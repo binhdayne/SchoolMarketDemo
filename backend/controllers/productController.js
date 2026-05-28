@@ -25,6 +25,7 @@ const DEFAULT_CATEGORIES = [
 
 let productImageColumnReady = false;
 let defaultCategoriesReady = false;
+let paymentQuantityColumnReady = false;
 
 async function ensureProductImageColumn() {
     if (productImageColumnReady) return;
@@ -48,6 +49,21 @@ async function ensureDefaultCategories() {
     }
 
     defaultCategoriesReady = true;
+}
+
+async function ensurePaymentQuantityColumn() {
+    if (paymentQuantityColumnReady) return;
+
+    try {
+        await promiseDb.query("ALTER TABLE thanh_toan ADD COLUMN so_luong INT DEFAULT 1 AFTER so_tien_giao_dich");
+    } catch (err) {
+        if (err.code !== "ER_DUP_FIELDNAME") {
+            throw err;
+        }
+    }
+
+    await promiseDb.query("UPDATE thanh_toan SET so_luong = 1 WHERE so_luong IS NULL OR so_luong < 1");
+    paymentQuantityColumnReady = true;
 }
 
 // Xử lý lấy thống kê Dashboard
@@ -85,10 +101,10 @@ exports.getMarketplaceStats = async (req, res) => {
     try {
         const [rows] = await promiseDb.query(`
             SELECT
-                (SELECT COUNT(*) FROM san_pham) AS products,
+                (SELECT COUNT(*) FROM san_pham WHERE trang_thai = ? AND COALESCE(so_luong, 0) > 0) AS products,
                 (SELECT COUNT(*) FROM hoat_dong_quyen_gop) AS campaigns,
                 (SELECT COUNT(*) FROM thanh_vien) AS members
-        `);
+        `, [PRODUCT_STATUS.APPROVED]);
 
         res.json({
             products: Number(rows[0]?.products || 0),
@@ -120,7 +136,7 @@ exports.getPublicProducts = async (req, res) => {
                 dm.ten_danh_muc
              FROM san_pham sp
              LEFT JOIN danh_muc dm ON dm.ma_danh_muc = sp.ma_danh_muc
-             WHERE sp.trang_thai = ?
+             WHERE sp.trang_thai = ? AND COALESCE(sp.so_luong, 0) > 0
              ORDER BY sp.ngay_dang DESC, sp.ma_san_pham DESC`,
             [PRODUCT_STATUS.APPROVED]
         );
@@ -202,6 +218,8 @@ exports.createProduct = async (req, res) => {
 
 exports.getMyProducts = async (req, res) => {
     try {
+        await ensurePaymentQuantityColumn();
+
         const ma_thanh_vien = req.user.id;
 
         const [products] = await promiseDb.query(
@@ -210,6 +228,8 @@ exports.getMyProducts = async (req, res) => {
                 dm.ten_danh_muc,
                 tt.ma_thanh_toan,
                 tt.anh_xac_nhan_giao_dich,
+                tt.so_luong AS so_luong_mua,
+                tt.so_tien_giao_dich,
                 tt.trang_thai AS trang_thai_thanh_toan,
                 tt.ngay_gui AS ngay_gui_bien_lai,
                 buyer.ho_ten AS ten_nguoi_mua,
@@ -280,6 +300,10 @@ exports.getPurchaseDetail = async (req, res) => {
             return res.status(409).json({ error: "Sản phẩm này hiện không còn khả dụng để mua." });
         }
 
+        if (Number(product.so_luong || 0) <= 0) {
+            return res.status(409).json({ error: "Sản phẩm này đã hết hàng." });
+        }
+
         if (Number(product.ma_nguoi_ban) === Number(buyerId)) {
             return res.status(403).json({ error: "Bạn không thể mua sản phẩm của chính mình." });
         }
@@ -298,6 +322,7 @@ exports.createPurchase = async (req, res) => {
     const productId = req.params.id;
     const buyerId = req.user?.id;
     const accountType = req.user?.accountType || req.user?.role;
+    const requestedQuantity = parseInt(req.body?.so_luong_mua || "1", 10);
 
     if (accountType !== 'thanh_vien') {
         return res.status(403).json({ error: "Chỉ thành viên mới có thể mua sản phẩm." });
@@ -307,7 +332,12 @@ exports.createPurchase = async (req, res) => {
         return res.status(400).json({ error: "Vui lòng tải lên biên lai chuyển khoản." });
     }
 
+    if (!Number.isInteger(requestedQuantity) || requestedQuantity < 1) {
+        return res.status(400).json({ error: "Số lượng mua không hợp lệ." });
+    }
+
     try {
+        await ensurePaymentQuantityColumn();
         await promiseDb.beginTransaction();
 
         const [products] = await promiseDb.query(
@@ -316,6 +346,7 @@ exports.createPurchase = async (req, res) => {
                 sp.ten_san_pham,
                 sp.gia,
                 sp.trang_thai,
+                sp.so_luong,
                 sp.ma_thanh_vien,
                 seller.ma_ngan_hang
              FROM san_pham sp
@@ -347,18 +378,35 @@ exports.createPurchase = async (req, res) => {
             return res.status(409).json({ error: "Người bán chưa cập nhật QR nhận tiền." });
         }
 
+        const availableQuantity = Number(product.so_luong || 0);
+        if (availableQuantity <= 0) {
+            await promiseDb.rollback();
+            return res.status(409).json({ error: "Sản phẩm này đã hết hàng." });
+        }
+
+        if (requestedQuantity > availableQuantity) {
+            await promiseDb.rollback();
+            return res.status(409).json({
+                error: `Sản phẩm chỉ còn ${availableQuantity}. Vui lòng chọn số lượng thấp hơn.`
+            });
+        }
+
         const receiptPath = `/uploads/${req.file.filename}`;
+        const remainingQuantity = availableQuantity - requestedQuantity;
+        const totalAmount = Number(product.gia || 0) * requestedQuantity;
+        const nextProductStatus = remainingQuantity > 0 ? PRODUCT_STATUS.APPROVED : PRODUCT_STATUS.IN_TRANSACTION;
 
         const [paymentResult] = await promiseDb.execute(
             `INSERT INTO thanh_toan
                 (ma_thanh_vien_gui, ma_thanh_vien_nhan, ma_san_pham, so_tien_giao_dich,
-                 anh_xac_nhan_giao_dich, ghi_chu, trang_thai)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                 so_luong, anh_xac_nhan_giao_dich, ghi_chu, trang_thai)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 buyerId,
                 product.ma_thanh_vien,
                 product.ma_san_pham,
-                product.gia || 0,
+                totalAmount,
+                requestedQuantity,
                 receiptPath,
                 req.body?.ghi_chu || null,
                 PAYMENT_STATUS.PENDING_SELLER
@@ -366,15 +414,19 @@ exports.createPurchase = async (req, res) => {
         );
 
         await promiseDb.execute(
-            "UPDATE san_pham SET trang_thai = ? WHERE ma_san_pham = ?",
-            [PRODUCT_STATUS.IN_TRANSACTION, product.ma_san_pham]
+            "UPDATE san_pham SET so_luong = ?, trang_thai = ? WHERE ma_san_pham = ?",
+            [remainingQuantity, nextProductStatus, product.ma_san_pham]
         );
 
         await promiseDb.commit();
 
         res.status(201).json({
-            message: "Đã gửi biên lai cho người bán xác nhận. Sản phẩm đã được ẩn khỏi trang chủ.",
+            message: remainingQuantity > 0
+                ? "Đã gửi biên lai cho người bán xác nhận. Sản phẩm vẫn hiển thị với số lượng còn lại."
+                : "Đã gửi biên lai cho người bán xác nhận. Sản phẩm đã hết hàng và được ẩn khỏi trang chủ.",
             ma_thanh_toan: paymentResult.insertId,
+            so_luong_con_lai: remainingQuantity,
+            tong_tien: totalAmount,
             trang_thai: PAYMENT_STATUS.PENDING_SELLER
         });
     } catch (err) {
@@ -397,10 +449,11 @@ exports.confirmPurchase = async (req, res) => {
     }
 
     try {
+        await ensurePaymentQuantityColumn();
         await promiseDb.beginTransaction();
 
         const [payments] = await promiseDb.query(
-            `SELECT tt.ma_thanh_toan, tt.ma_san_pham, tt.trang_thai, sp.ma_thanh_vien
+            `SELECT tt.ma_thanh_toan, tt.ma_san_pham, tt.trang_thai, tt.so_luong, sp.ma_thanh_vien, sp.so_luong AS so_luong_con_lai
              FROM thanh_toan tt
              INNER JOIN san_pham sp ON sp.ma_san_pham = tt.ma_san_pham
              WHERE tt.ma_thanh_toan = ?
@@ -430,16 +483,12 @@ exports.confirmPurchase = async (req, res) => {
             [PAYMENT_STATUS.COMPLETED, paymentId]
         );
 
-        await promiseDb.execute(
-            "DELETE FROM san_pham WHERE ma_san_pham = ?",
-            [payment.ma_san_pham]
-        );
-
         await promiseDb.commit();
 
         res.json({
-            message: "Đã xác nhận giao dịch và xóa sản phẩm khỏi hệ thống.",
-            ma_san_pham: payment.ma_san_pham
+            message: "Đã xác nhận giao dịch.",
+            ma_san_pham: payment.ma_san_pham,
+            so_luong_con_lai: Number(payment.so_luong_con_lai || 0)
         });
     } catch (err) {
         try {
@@ -461,10 +510,11 @@ exports.rejectPurchase = async (req, res) => {
     }
 
     try {
+        await ensurePaymentQuantityColumn();
         await promiseDb.beginTransaction();
 
         const [payments] = await promiseDb.query(
-            `SELECT tt.ma_thanh_toan, tt.ma_san_pham, tt.trang_thai, sp.ma_thanh_vien
+            `SELECT tt.ma_thanh_toan, tt.ma_san_pham, tt.trang_thai, tt.so_luong, sp.ma_thanh_vien, sp.so_luong AS so_luong_con_lai
              FROM thanh_toan tt
              INNER JOIN san_pham sp ON sp.ma_san_pham = tt.ma_san_pham
              WHERE tt.ma_thanh_toan = ?
@@ -494,9 +544,11 @@ exports.rejectPurchase = async (req, res) => {
             [PAYMENT_STATUS.REJECTED, paymentId]
         );
 
+        const restoredQuantity = Number(payment.so_luong_con_lai || 0) + Number(payment.so_luong || 1);
+
         await promiseDb.execute(
-            "UPDATE san_pham SET trang_thai = ? WHERE ma_san_pham = ?",
-            [PRODUCT_STATUS.APPROVED, payment.ma_san_pham]
+            "UPDATE san_pham SET so_luong = ?, trang_thai = ? WHERE ma_san_pham = ?",
+            [restoredQuantity, PRODUCT_STATUS.APPROVED, payment.ma_san_pham]
         );
 
         await promiseDb.commit();
@@ -504,6 +556,7 @@ exports.rejectPurchase = async (req, res) => {
         res.json({
             message: "Đã từ chối giao dịch. Sản phẩm đã hiện lại trên trang chủ.",
             ma_san_pham: payment.ma_san_pham,
+            so_luong_con_lai: restoredQuantity,
             trang_thai: PRODUCT_STATUS.APPROVED
         });
     } catch (err) {

@@ -204,6 +204,14 @@
   opacity: 0.65;
 }
 
+.community-primary-button,
+.community-secondary-button {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  justify-content: center;
+}
+
 .community-secondary-button {
   background: #fff;
   border: 1px solid #d1d5db;
@@ -226,6 +234,133 @@
   background: #fef2f2;
   border: 1px solid #fecaca;
   color: #b91c1c;
+}
+
+.contribution-layout {
+  align-items: start;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+}
+
+.contribution-event,
+.contribution-payment {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.contribution-payment {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.contribution-payment h3 {
+  margin: 0;
+}
+
+.event-qr-box {
+  align-items: center;
+  background: #f9fafb;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  display: flex;
+  justify-content: center;
+  min-height: 260px;
+  padding: 14px;
+}
+
+.event-qr-box img {
+  max-height: 260px;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.contribution-summary {
+  align-items: center;
+  background: #f9fafb;
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.contribution-summary.inline {
+  margin-top: 2px;
+}
+
+.contribution-summary span {
+  color: #6b7280;
+  font-weight: 700;
+}
+
+.contribution-summary strong {
+  color: #047857;
+}
+
+.receipt-uploader {
+  align-items: center;
+  background: #f9fafb;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  color: #4b5563;
+  cursor: pointer;
+  display: flex;
+  font-weight: 800;
+  justify-content: center;
+  min-height: 150px;
+  overflow: hidden;
+}
+
+.receipt-uploader span {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.receipt-uploader img {
+  height: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  width: 100%;
+}
+
+.donor-list-box {
+  border-top: 1px solid #f3f4f6;
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.donor-list-box h4 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.donor-list-box p {
+  color: #6b7280;
+  margin: 0;
+}
+
+.donor-list {
+  display: grid;
+  gap: 7px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.donor-list li {
+  align-items: center;
+  background: #f9fafb;
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 8px 10px;
 }
 
 .activity-layout {
@@ -299,6 +434,7 @@
 
   .activity-layout,
   .community-form-grid,
+  .contribution-layout,
   .member-qr-row {
     grid-template-columns: 1fr;
   }

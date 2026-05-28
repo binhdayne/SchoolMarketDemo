@@ -29,6 +29,7 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem("token"));
   const [authMode, setAuthMode] = useState(null);
   const [selectedProductId, setSelectedProductId] = useState(null);
+  const [selectedPurchaseQuantity, setSelectedPurchaseQuantity] = useState(1);
 
   const [currentUser, setCurrentUser] = useState(() => {
     const savedUser = localStorage.getItem("user");
@@ -177,6 +178,8 @@ function App() {
     setOrganizationManagerOpen(false);
     setOrganizationEventCreatorOpen(false);
     setAuthMode(null);
+    setSelectedProductId(null);
+    setSelectedPurchaseQuantity(1);
     setView("dashboard");
   };
 
@@ -221,16 +224,18 @@ function App() {
     setOrganizationManagerOpen(false);
     setOrganizationEventCreatorOpen(false);
     setSelectedProductId(null);
+    setSelectedPurchaseQuantity(1);
     setView(accountType === "thanh_vien" ? "home" : "dashboard");
   };
 
-  const openProductPurchase = (productId) => {
+  const openProductPurchase = (productId, quantity = 1) => {
     if (accountType !== "thanh_vien") {
       setView("dashboard");
       return;
     }
 
     setSelectedProductId(productId);
+    setSelectedPurchaseQuantity(Math.max(1, Number(quantity) || 1));
     setView("product-purchase");
   };
 
@@ -448,7 +453,13 @@ function App() {
               setAuthMode("register");
             }}
           />
-          <DonationEventsPage onBackHome={() => setView("dashboard")} />
+          <DonationEventsPage
+            onBackHome={() => setView("dashboard")}
+            onLoginRequired={() => {
+              setView("dashboard");
+              setAuthMode("login");
+            }}
+          />
         </div>
       );
     }
@@ -593,7 +604,12 @@ function App() {
           onUpdatePostStatus={updatePostStatus}
         />
       ) : view === "donations" ? (
-        <DonationEventsPage onBackHome={goHome} />
+        <DonationEventsPage
+          token={token}
+          accountType={accountType}
+          onBackHome={goHome}
+          onLoginRequired={() => setAuthMode("login")}
+        />
       ) : view === "activities" ? (
         <ActivityPostsPage
           token={token}
@@ -619,6 +635,7 @@ function App() {
       ) : view === "product-purchase" ? (
         <ProductPurchasePage
           productId={selectedProductId}
+          purchaseQuantity={selectedPurchaseQuantity}
           token={token}
           navigate={navigate}
           onBackHome={goHome}

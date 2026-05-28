@@ -70,9 +70,31 @@ CREATE TABLE hoat_dong_quyen_gop (
     han_ket_thuc DATETIME,
     anh_minh_hoa LONGTEXT,
     hinh_thuc_quyen_gop VARCHAR(50),
+    ma_qr_quyen_gop LONGTEXT,
+    so_tien_toi_thieu DECIMAL(12,2) DEFAULT 0,
 
     FOREIGN KEY (ma_to_chuc) REFERENCES to_chuc(ma_to_chuc)
         ON DELETE SET NULL
+        ON UPDATE CASCADE
+);
+
+CREATE TABLE dong_gop_su_kien (
+    ma_dong_gop INT AUTO_INCREMENT PRIMARY KEY,
+    ma_hoat_dong INT NOT NULL,
+    ma_thanh_vien INT NOT NULL,
+    so_tien DECIMAL(12,2) NOT NULL,
+    anh_bien_lai LONGTEXT NOT NULL,
+    ghi_chu TEXT,
+    trang_thai VARCHAR(50) DEFAULT 'cho_xac_nhan',
+    ngay_gui DATETIME DEFAULT CURRENT_TIMESTAMP,
+    ngay_xac_nhan DATETIME,
+
+    FOREIGN KEY (ma_hoat_dong) REFERENCES hoat_dong_quyen_gop(ma_hoat_dong)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+
+    FOREIGN KEY (ma_thanh_vien) REFERENCES thanh_vien(ma_thanh_vien)
+        ON DELETE CASCADE
         ON UPDATE CASCADE
 );
 
@@ -182,6 +204,7 @@ CREATE TABLE thanh_toan (
     ma_to_chuc_nhan INT,
     ma_san_pham INT,
     so_tien_giao_dich DECIMAL(12,2) NOT NULL,
+    so_luong INT DEFAULT 1,
     anh_xac_nhan_giao_dich VARCHAR(255),
     ghi_chu TEXT,
     trang_thai VARCHAR(50),

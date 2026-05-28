@@ -19,7 +19,7 @@ function formatCurrency(value) {
   });
 }
 
-export default function ProductPurchasePage({ productId, token, onBackHome }) {
+export default function ProductPurchasePage({ productId, purchaseQuantity = 1, token, onBackHome }) {
   const [product, setProduct] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const [receiptPreview, setReceiptPreview] = useState('');
@@ -28,6 +28,10 @@ export default function ProductPurchasePage({ productId, token, onBackHome }) {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const selectedQuantity = product
+    ? Math.min(Math.max(1, Number(purchaseQuantity) || 1), Math.max(1, Number(product.so_luong || 0)))
+    : Math.max(1, Number(purchaseQuantity) || 1);
+  const totalPrice = Number(product?.gia || 0) * selectedQuantity;
 
   useEffect(() => {
     if (!receipt) {
@@ -86,6 +90,7 @@ export default function ProductPurchasePage({ productId, token, onBackHome }) {
     const formData = new FormData();
     formData.append('receipt', receipt);
     formData.append('ghi_chu', note);
+    formData.append('so_luong_mua', String(selectedQuantity));
 
     setSubmitting(true);
 
@@ -133,11 +138,15 @@ export default function ProductPurchasePage({ productId, token, onBackHome }) {
             <div className="purchase-product-body">
               <p className="purchase-category">{product.ten_danh_muc || 'Chưa phân loại'}</p>
               <h2>{product.ten_san_pham}</h2>
-              <p className="purchase-price">{formatCurrency(product.gia)}</p>
+              <p className="purchase-price">{formatCurrency(totalPrice)}</p>
               <div className="purchase-info-grid">
+                <span>Đơn giá</span>
+                <strong>{formatCurrency(product.gia)}</strong>
+                <span>Số lượng mua</span>
+                <strong>{selectedQuantity}</strong>
                 <span>Tình trạng</span>
                 <strong>{product.tinh_trang || 'Chưa cập nhật'}</strong>
-                <span>Số lượng</span>
+                <span>Còn lại</span>
                 <strong>{product.so_luong || 1}</strong>
                 <span>Người bán</span>
                 <strong>{product.ten_nguoi_ban || 'Thành viên'}</strong>
@@ -156,8 +165,10 @@ export default function ProductPurchasePage({ productId, token, onBackHome }) {
               <strong>{product.ten_ngan_hang || 'Chưa cập nhật'}</strong>
               <span>Số tài khoản</span>
               <strong>{product.so_tai_khoan || 'Chưa cập nhật'}</strong>
+              <span>Số lượng</span>
+              <strong>{selectedQuantity}</strong>
               <span>Số tiền</span>
-              <strong>{formatCurrency(product.gia)}</strong>
+              <strong>{formatCurrency(totalPrice)}</strong>
             </div>
 
             <label className="receipt-uploader" htmlFor="receiptInput">
