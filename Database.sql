@@ -205,10 +205,15 @@ CREATE TABLE thanh_toan (
     ma_san_pham INT,
     so_tien_giao_dich DECIMAL(12,2) NOT NULL,
     so_luong INT DEFAULT 1,
+    so_tien_quyen_gop DECIMAL(12,2) DEFAULT 0,
+    so_tien_tra_nguoi_ban DECIMAL(12,2) DEFAULT 0,
     anh_xac_nhan_giao_dich VARCHAR(255),
     ghi_chu TEXT,
     trang_thai VARCHAR(50),
+    trang_thai_chi_tra_nguoi_ban VARCHAR(50) DEFAULT 'khong_can_chi_tra',
     ngay_gui DATETIME DEFAULT CURRENT_TIMESTAMP,
+    ngay_xac_nhan_to_chuc DATETIME,
+    ngay_chi_tra_nguoi_ban DATETIME,
 
     FOREIGN KEY (ma_thanh_vien_gui) REFERENCES thanh_vien(ma_thanh_vien)
         ON DELETE SET NULL

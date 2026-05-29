@@ -609,6 +609,7 @@ function App() {
           accountType={accountType}
           onBackHome={goHome}
           onLoginRequired={() => setAuthMode("login")}
+          onBuyProductClick={openProductPurchase}
         />
       ) : view === "activities" ? (
         <ActivityPostsPage
