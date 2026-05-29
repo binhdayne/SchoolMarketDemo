@@ -17,6 +17,7 @@ const initialEventForm = {
   hinh_thuc_quyen_gop: "nhan_tien_chuyen_khoan",
   ma_qr_quyen_gop: "",
   so_tien_toi_thieu: "",
+  chi_tiet_do_vat: "",
 };
 
 const donationTypeOptions = [
@@ -254,7 +255,7 @@ function OrganizationPage({
       return;
     }
 
-    if (!eventForm.ma_qr_quyen_gop) {
+    if (eventForm.hinh_thuc_quyen_gop !== "nhan_do_vat" && !eventForm.ma_qr_quyen_gop) {
       setEventError("Vui lòng tải lên mã QR nhận quyên góp.");
       return;
     }
@@ -264,6 +265,14 @@ function OrganizationPage({
       Number(eventForm.so_tien_toi_thieu || 0) <= 0
     ) {
       setEventError("Vui lòng nhập số tiền tối thiểu khi nhận tiền chuyển khoản.");
+      return;
+    }
+
+    if (
+      eventForm.hinh_thuc_quyen_gop === "nhan_do_vat" &&
+      !eventForm.chi_tiet_do_vat.trim()
+    ) {
+      setEventError("Vui lòng nhập chi tiết đồ vật cần nhận.");
       return;
     }
 
@@ -773,6 +782,12 @@ function EventDetailDialog({ event, onClose }) {
             <dd>{formatCurrency(event.so_tien_toi_thieu)}</dd>
           </div>
         </dl>
+        {event.chi_tiet_do_vat && (
+          <div style={styles.detailQrBox}>
+            <h3 style={styles.eventCardTitle}>Chi tiết đồ vật cần nhận</h3>
+            <p style={styles.detailText}>{event.chi_tiet_do_vat}</p>
+          </div>
+        )}
         {event.ma_qr_quyen_gop && (
           <div style={styles.detailQrBox}>
             <h3 style={styles.eventCardTitle}>QR nhận quyên góp</h3>
@@ -843,21 +858,23 @@ function DonationEventCreator({
               </div>
             </label>
 
-            <label style={styles.field}>
-              <span style={styles.fieldLabel}>Mã QR nhận quyên góp</span>
-              <div style={styles.eventImageRow}>
-                {form.ma_qr_quyen_gop ? (
-                  <img
-                    src={form.ma_qr_quyen_gop}
-                    alt="Mã QR nhận quyên góp"
-                    style={styles.qrImagePreview}
-                  />
-                ) : (
-                  <div style={styles.qrImagePlaceholder}>Chưa chọn QR</div>
-                )}
-                <input type="file" accept="image/*" onChange={onQrImageChange} style={styles.fileInput} />
-              </div>
-            </label>
+            {form.hinh_thuc_quyen_gop !== "nhan_do_vat" && (
+              <label style={styles.field}>
+                <span style={styles.fieldLabel}>Mã QR nhận quyên góp</span>
+                <div style={styles.eventImageRow}>
+                  {form.ma_qr_quyen_gop ? (
+                    <img
+                      src={form.ma_qr_quyen_gop}
+                      alt="Mã QR nhận quyên góp"
+                      style={styles.qrImagePreview}
+                    />
+                  ) : (
+                    <div style={styles.qrImagePlaceholder}>Chưa chọn QR</div>
+                  )}
+                  <input type="file" accept="image/*" onChange={onQrImageChange} style={styles.fileInput} />
+                </div>
+              </label>
+            )}
 
             <EditableField
               label="Tên hoạt động"
@@ -916,6 +933,18 @@ function DonationEventCreator({
                 onChange={onChange}
                 placeholder="Ví dụ: 50000"
                 required
+              />
+            )}
+
+            {form.hinh_thuc_quyen_gop === "nhan_do_vat" && (
+              <EditableField
+                label="Chi tiết đồ vật cần nhận"
+                name="chi_tiet_do_vat"
+                value={form.chi_tiet_do_vat}
+                onChange={onChange}
+                placeholder="Ví dụ: quần áo thừa, sách cũ, đồ dùng học tập..."
+                required
+                multiline
               />
             )}
 

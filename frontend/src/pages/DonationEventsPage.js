@@ -58,6 +58,10 @@ function isDonationSaleEvent(event) {
   return event.hinh_thuc_quyen_gop === "ban_do_quyen_gop";
 }
 
+function isItemDonationEvent(event) {
+  return event.hinh_thuc_quyen_gop === "nhan_do_vat";
+}
+
 function canJoinTransferEvent(event) {
   return isTransferEvent(event) && Boolean(event.ma_qr_quyen_gop) && Number(event.so_tien_toi_thieu || 0) > 0;
 }
@@ -72,7 +76,11 @@ function DonorList({ donors }) {
         <ul className="donor-list">
           {donors.map((donor, index) => (
             <li key={`${donor.ho_ten}-${donor.lop}-${index}`}>
+              {donor.anh_bien_lai && donor.loai_dong_gop === "nhan_do_vat" && (
+                <img className="donor-item-image" src={getAssetUrl(donor.anh_bien_lai)} alt="Đồ vật quyên góp" />
+              )}
               <strong>{donor.ho_ten}</strong>
+              {Number(donor.so_luong_do_vat || 0) > 0 && <em>{donor.so_luong_do_vat} món</em>}
               <span>{donor.lop || "Chưa cập nhật lớp"}</span>
             </li>
           ))}
@@ -163,6 +171,14 @@ export default function DonationEventsPage({
   const [submitting, setSubmitting] = useState(false);
   const [contributionMessage, setContributionMessage] = useState("");
   const [contributionError, setContributionError] = useState("");
+  const [itemEvent, setItemEvent] = useState(null);
+  const [itemFile, setItemFile] = useState(null);
+  const [itemPreview, setItemPreview] = useState("");
+  const [itemQuantity, setItemQuantity] = useState(1);
+  const [itemNote, setItemNote] = useState("");
+  const [itemSubmitting, setItemSubmitting] = useState(false);
+  const [itemMessage, setItemMessage] = useState("");
+  const [itemError, setItemError] = useState("");
   const [productFormEvent, setProductFormEvent] = useState(null);
   const [productForm, setProductForm] = useState(initialDonationProductForm);
   const [productFile, setProductFile] = useState(null);
@@ -234,6 +250,17 @@ export default function DonationEventsPage({
   }, [receipt]);
 
   useEffect(() => {
+    if (!itemFile) {
+      setItemPreview("");
+      return undefined;
+    }
+
+    const previewUrl = URL.createObjectURL(itemFile);
+    setItemPreview(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [itemFile]);
+
+  useEffect(() => {
     if (!productFile) {
       setProductPreview("");
       return undefined;
@@ -292,6 +319,37 @@ export default function DonationEventsPage({
     setNote("");
     setContributionMessage("");
     setContributionError("");
+  };
+
+  const openItemContributionPage = (event) => {
+    if (!isItemDonationEvent(event)) return;
+
+    if (!token) {
+      onLoginRequired?.();
+      return;
+    }
+
+    if (accountType !== "thanh_vien") {
+      setError("Chỉ thành viên mới có thể tham gia quyên góp.");
+      return;
+    }
+
+    setItemEvent(event);
+    setItemFile(null);
+    setItemQuantity(1);
+    setItemNote("");
+    setItemMessage("");
+    setItemError("");
+  };
+
+  const closeItemContributionPage = () => {
+    setItemEvent(null);
+    setItemFile(null);
+    setItemPreview("");
+    setItemQuantity(1);
+    setItemNote("");
+    setItemMessage("");
+    setItemError("");
   };
 
   const openDonationProductForm = (event) => {
@@ -362,6 +420,63 @@ export default function DonationEventsPage({
     }
   };
 
+  const submitItemContribution = async () => {
+    setItemMessage("");
+    setItemError("");
+
+    if (!itemEvent) return;
+
+    if (!itemFile) {
+      setItemError("Vui lòng tải lên ảnh đồ vật quyên góp.");
+      return;
+    }
+
+    const numericQuantity = Number(itemQuantity || 0);
+    if (!Number.isInteger(numericQuantity) || numericQuantity <= 0) {
+      setItemError("Vui lòng nhập số lượng hợp lệ.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("receipt", itemFile);
+    formData.append("so_luong_do_vat", String(numericQuantity));
+    formData.append("ghi_chu", itemNote);
+
+    setItemSubmitting(true);
+
+    try {
+      const res = await axios.post(`${API}/campaigns/${itemEvent.ma_hoat_dong}/contributions`, formData, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const nextDonor = {
+        ho_ten: "Bạn",
+        lop: "",
+        loai_dong_gop: "nhan_do_vat",
+        so_luong_do_vat: numericQuantity,
+        anh_bien_lai: res.data.anh_bien_lai,
+        ghi_chu: itemNote,
+      };
+      setItemEvent((currentEvent) => currentEvent ? {
+        ...currentEvent,
+        nguoi_quyen_gop: [nextDonor, ...(currentEvent.nguoi_quyen_gop || [])],
+      } : currentEvent);
+      setEvents((currentEvents) => currentEvents.map((event) => (
+        event.ma_hoat_dong === itemEvent.ma_hoat_dong
+          ? { ...event, nguoi_quyen_gop: [nextDonor, ...(event.nguoi_quyen_gop || [])] }
+          : event
+      )));
+      setItemMessage(res.data.message || "Đã ghi nhận đồ vật quyên góp.");
+      setItemFile(null);
+      setItemQuantity(1);
+      setItemNote("");
+    } catch (err) {
+      setItemError(err.response?.data?.message || "Không thể gửi thông tin đồ vật quyên góp.");
+    } finally {
+      setItemSubmitting(false);
+    }
+  };
+
   const submitDonationProduct = async () => {
     setProductMessage("");
     setProductError("");
@@ -419,6 +534,99 @@ export default function DonationEventsPage({
       setProductSubmitting(false);
     }
   };
+
+  if (itemEvent) {
+    return (
+      <main className="community-page">
+        <section className="community-hero">
+          <div>
+            <p className="community-kicker">Nhận đồ vật</p>
+            <h2 className="community-title">{itemEvent.ten_hoat_dong}</h2>
+            <p className="community-subtitle">{itemEvent.chi_tiet_do_vat || itemEvent.mo_ta || "Chưa có chi tiết đồ vật."}</p>
+          </div>
+          <button type="button" className="community-secondary-button" onClick={closeItemContributionPage}>
+            <LuArrowLeft size={16} /> Danh sách sự kiện
+          </button>
+        </section>
+
+        <section className="community-panel contribution-layout">
+          <div className="contribution-event">
+            <img
+              src={getAssetUrl(itemEvent.anh_minh_hoa)}
+              alt={itemEvent.ten_hoat_dong || "Sự kiện quyên góp"}
+              className="community-card-image"
+            />
+            <div className="community-card-body">
+              <span className="community-badge"><LuHeart size={14} /> {getDonationTypeLabel(itemEvent.hinh_thuc_quyen_gop)}</span>
+              <p className="community-card-text">{itemEvent.mo_ta || "Chưa có mô tả."}</p>
+              <div className="community-meta">
+                <span><LuMapPin size={15} /> {itemEvent.dia_diem || "Chưa cập nhật địa điểm"}</span>
+                <span><LuCalendar size={15} /> Ngày tổ chức: {formatDate(itemEvent.ngay_to_chuc)}</span>
+                <span><LuClock size={15} /> Hạn kết thúc: {formatDate(itemEvent.han_ket_thuc)}</span>
+                <span>Tổ chức: {itemEvent.ten_to_chuc || "-"}</span>
+              </div>
+              <div className="contribution-summary inline">
+                <span>Đồ vật cần nhận</span>
+                <strong>{itemEvent.chi_tiet_do_vat || "Chưa cập nhật"}</strong>
+              </div>
+              <DonorList donors={itemEvent.nguoi_quyen_gop || []} />
+            </div>
+          </div>
+
+          <aside className="contribution-payment">
+            <h3>Thông tin đồ vật</h3>
+            {itemMessage && <p className="community-alert success">{itemMessage}</p>}
+            {itemError && <p className="community-alert error">{itemError}</p>}
+
+            <label className="receipt-uploader" htmlFor="itemDonationImageInput">
+              <input
+                id="itemDonationImageInput"
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(event) => setItemFile(event.target.files?.[0] || null)}
+                disabled={Boolean(itemMessage)}
+              />
+              {itemPreview ? (
+                <img src={itemPreview} alt="Ảnh đồ vật quyên góp" />
+              ) : (
+                <span><LuUpload size={18} /> Tải lên ảnh đồ vật</span>
+              )}
+            </label>
+
+            <label className="community-field">
+              <span className="community-label">Số lượng</span>
+              <input
+                className="community-input"
+                type="number"
+                min="1"
+                value={itemQuantity}
+                onChange={(event) => setItemQuantity(event.target.value)}
+                disabled={Boolean(itemMessage)}
+              />
+            </label>
+
+            <textarea
+              className="community-textarea"
+              placeholder="Ghi chú thêm nếu cần..."
+              value={itemNote}
+              onChange={(event) => setItemNote(event.target.value)}
+              disabled={Boolean(itemMessage)}
+            />
+
+            <button
+              type="button"
+              className="community-primary-button"
+              onClick={submitItemContribution}
+              disabled={itemSubmitting || Boolean(itemMessage)}
+            >
+              {itemSubmitting ? "Đang gửi..." : "Xác nhận quyên góp"}
+            </button>
+          </aside>
+        </section>
+      </main>
+    );
+  }
 
   if (productFormEvent) {
     return (
@@ -692,14 +900,23 @@ export default function DonationEventsPage({
           <div className="community-grid">
             {events.map((event) => {
               const saleEvent = isDonationSaleEvent(event);
+              const itemDonationEvent = isItemDonationEvent(event);
               const transferEvent = isTransferEvent(event);
               const transferReady = canJoinTransferEvent(event);
               const actionDisabled = transferEvent
                 ? !transferReady || (Boolean(token) && accountType !== "thanh_vien")
                 : saleEvent
                   ? Boolean(token) && accountType !== "thanh_vien"
-                  : true;
-              const actionLabel = saleEvent
+                  : itemDonationEvent
+                    ? Boolean(token) && accountType !== "thanh_vien"
+                    : true;
+              const actionLabel = itemDonationEvent
+                ? (token && accountType !== "thanh_vien"
+                    ? "Chỉ thành viên"
+                    : token
+                      ? "Tham gia"
+                      : "Đăng nhập để tham gia")
+                : saleEvent
                 ? (token && accountType !== "thanh_vien"
                     ? "Chỉ thành viên"
                     : token
@@ -742,6 +959,12 @@ export default function DonationEventsPage({
                         <strong>{formatCurrency(event.so_tien_toi_thieu)}</strong>
                       </div>
                     )}
+                    {itemDonationEvent && (
+                      <div className="contribution-summary inline">
+                        <span>Đồ vật cần nhận</span>
+                        <strong>{event.chi_tiet_do_vat || "Chưa cập nhật"}</strong>
+                      </div>
+                    )}
                     {saleEvent ? (
                       <EventProducts
                         products={event.san_pham_quyen_gop || []}
@@ -757,10 +980,16 @@ export default function DonationEventsPage({
                     <button
                       type="button"
                       className="community-primary-button"
-                      onClick={() => (saleEvent ? openDonationProductForm(event) : openContributionPage(event))}
+                      onClick={() => (
+                        saleEvent
+                          ? openDonationProductForm(event)
+                          : itemDonationEvent
+                            ? openItemContributionPage(event)
+                            : openContributionPage(event)
+                      )}
                       disabled={actionDisabled}
                     >
-                      {saleEvent && <LuPackagePlus size={16} />}
+                      {(saleEvent || itemDonationEvent) && <LuPackagePlus size={16} />}
                       {actionLabel}
                     </button>
                   </div>

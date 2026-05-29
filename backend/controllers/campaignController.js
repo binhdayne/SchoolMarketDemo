@@ -19,6 +19,10 @@ const DONATION_TYPES = [
     "nhan_do_vat"
 ];
 
+const TRANSFER_DONATION_TYPE = "nhan_tien_chuyen_khoan";
+const PRODUCT_DONATION_TYPE = "ban_do_quyen_gop";
+const ITEM_DONATION_TYPE = "nhan_do_vat";
+
 let campaignExtraColumnsReady = false;
 
 async function ensureCampaignExtraColumns() {
@@ -64,12 +68,24 @@ async function ensureCampaignExtraColumns() {
         }
     }
 
+    try {
+        await promiseDb.query(
+            "ALTER TABLE hoat_dong_quyen_gop ADD COLUMN chi_tiet_do_vat TEXT NULL AFTER so_tien_toi_thieu"
+        );
+    } catch (err) {
+        if (err.code !== "ER_DUP_FIELDNAME") {
+            throw err;
+        }
+    }
+
     await promiseDb.query(`
         CREATE TABLE IF NOT EXISTS dong_gop_su_kien (
             ma_dong_gop INT AUTO_INCREMENT PRIMARY KEY,
             ma_hoat_dong INT NOT NULL,
             ma_thanh_vien INT NOT NULL,
+            loai_dong_gop VARCHAR(50) DEFAULT 'nhan_tien_chuyen_khoan',
             so_tien DECIMAL(12,2) NOT NULL,
+            so_luong_do_vat INT DEFAULT 0,
             anh_bien_lai LONGTEXT NOT NULL,
             ghi_chu TEXT,
             trang_thai VARCHAR(50) DEFAULT 'cho_xac_nhan',
@@ -84,8 +100,25 @@ async function ensureCampaignExtraColumns() {
         )
     `);
 
+    const contributionColumnStatements = [
+        "ALTER TABLE dong_gop_su_kien ADD COLUMN loai_dong_gop VARCHAR(50) DEFAULT 'nhan_tien_chuyen_khoan' AFTER ma_thanh_vien",
+        "ALTER TABLE dong_gop_su_kien ADD COLUMN so_luong_do_vat INT DEFAULT 0 AFTER so_tien"
+    ];
+
+    for (const statement of contributionColumnStatements) {
+        try {
+            await promiseDb.query(statement);
+        } catch (err) {
+            if (err.code !== "ER_DUP_FIELDNAME") {
+                throw err;
+            }
+        }
+    }
+
     await promiseDb.query("ALTER TABLE hoat_dong_quyen_gop MODIFY COLUMN anh_minh_hoa LONGTEXT NULL");
     await promiseDb.query("ALTER TABLE hoat_dong_quyen_gop MODIFY COLUMN ma_qr_quyen_gop LONGTEXT NULL");
+    await promiseDb.query("UPDATE dong_gop_su_kien SET loai_dong_gop = ? WHERE loai_dong_gop IS NULL OR loai_dong_gop = ''", [TRANSFER_DONATION_TYPE]);
+    await promiseDb.query("UPDATE dong_gop_su_kien SET so_luong_do_vat = 0 WHERE so_luong_do_vat IS NULL");
     campaignExtraColumnsReady = true;
 }
 
@@ -108,6 +141,7 @@ function getCampaignSelectSql(whereClause = "") {
             hd.hinh_thuc_quyen_gop,
             hd.ma_qr_quyen_gop,
             hd.so_tien_toi_thieu,
+            hd.chi_tiet_do_vat,
             tc.ten_to_chuc
         FROM hoat_dong_quyen_gop hd
         LEFT JOIN to_chuc tc ON tc.ma_to_chuc = hd.ma_to_chuc
@@ -123,8 +157,13 @@ async function attachConfirmedDonors(campaigns) {
     const placeholders = campaignIds.map(() => "?").join(",");
     const [donors] = await promiseDb.query(
         `SELECT
+            dg.ma_dong_gop,
             dg.ma_hoat_dong,
+            dg.loai_dong_gop,
             dg.so_tien,
+            dg.so_luong_do_vat,
+            dg.anh_bien_lai,
+            dg.ghi_chu,
             dg.ngay_xac_nhan,
             tv.ho_ten,
             tv.lop
@@ -139,9 +178,14 @@ async function attachConfirmedDonors(campaigns) {
         const campaignId = Number(donor.ma_hoat_dong);
         if (!map.has(campaignId)) map.set(campaignId, []);
         map.get(campaignId).push({
+            ma_dong_gop: donor.ma_dong_gop,
             ho_ten: donor.ho_ten,
             lop: donor.lop,
+            loai_dong_gop: donor.loai_dong_gop,
             so_tien: donor.so_tien,
+            so_luong_do_vat: donor.so_luong_do_vat,
+            anh_bien_lai: donor.anh_bien_lai,
+            ghi_chu: donor.ghi_chu,
             ngay_xac_nhan: donor.ngay_xac_nhan
         });
         return map;
@@ -164,6 +208,8 @@ exports.createCampaign = async (req, res) => {
     const hinh_thuc_quyen_gop = String(req.body.hinh_thuc_quyen_gop || "").trim();
     const ma_qr_quyen_gop = String(req.body.ma_qr_quyen_gop || "").trim();
     const so_tien_toi_thieu = Number(req.body.so_tien_toi_thieu || 0);
+    const chi_tiet_do_vat = String(req.body.chi_tiet_do_vat || "").trim();
+    const requiresQr = hinh_thuc_quyen_gop === TRANSFER_DONATION_TYPE || hinh_thuc_quyen_gop === PRODUCT_DONATION_TYPE;
 
     if (!ma_to_chuc) {
         return res.status(401).json({ message: "Không xác định được tài khoản tổ chức" });
@@ -177,7 +223,7 @@ exports.createCampaign = async (req, res) => {
         !han_ket_thuc ||
         !anh_minh_hoa ||
         !hinh_thuc_quyen_gop ||
-        !ma_qr_quyen_gop
+        (requiresQr && !ma_qr_quyen_gop)
     ) {
         return res.status(400).json({ message: "Vui lòng nhập đầy đủ thông tin sự kiện quyên góp" });
     }
@@ -186,7 +232,11 @@ exports.createCampaign = async (req, res) => {
         return res.status(400).json({ message: "Hình thức quyên góp không hợp lệ" });
     }
 
-    if (hinh_thuc_quyen_gop === "nhan_tien_chuyen_khoan" && (!Number.isFinite(so_tien_toi_thieu) || so_tien_toi_thieu <= 0)) {
+    if (hinh_thuc_quyen_gop === ITEM_DONATION_TYPE && !chi_tiet_do_vat) {
+        return res.status(400).json({ message: "Vui lòng nhập chi tiết đồ vật cần nhận" });
+    }
+
+    if (hinh_thuc_quyen_gop === TRANSFER_DONATION_TYPE && (!Number.isFinite(so_tien_toi_thieu) || so_tien_toi_thieu <= 0)) {
         return res.status(400).json({ message: "Vui lòng nhập số tiền tối thiểu khi nhận tiền chuyển khoản" });
     }
 
@@ -195,8 +245,8 @@ exports.createCampaign = async (req, res) => {
 
         const [result] = await promiseDb.query(
             `INSERT INTO hoat_dong_quyen_gop
-                (ten_hoat_dong, mo_ta, ngay_to_chuc, dia_diem, trang_thai, ma_to_chuc, han_ket_thuc, anh_minh_hoa, hinh_thuc_quyen_gop, ma_qr_quyen_gop, so_tien_toi_thieu)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (ten_hoat_dong, mo_ta, ngay_to_chuc, dia_diem, trang_thai, ma_to_chuc, han_ket_thuc, anh_minh_hoa, hinh_thuc_quyen_gop, ma_qr_quyen_gop, so_tien_toi_thieu, chi_tiet_do_vat)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 ten_hoat_dong,
                 mo_ta,
@@ -207,8 +257,9 @@ exports.createCampaign = async (req, res) => {
                 han_ket_thuc,
                 anh_minh_hoa,
                 hinh_thuc_quyen_gop,
-                ma_qr_quyen_gop,
-                so_tien_toi_thieu
+                ma_qr_quyen_gop || null,
+                hinh_thuc_quyen_gop === TRANSFER_DONATION_TYPE ? so_tien_toi_thieu : 0,
+                chi_tiet_do_vat || null
             ]
         );
 
@@ -226,7 +277,8 @@ exports.createCampaign = async (req, res) => {
                 anh_minh_hoa,
                 hinh_thuc_quyen_gop,
                 ma_qr_quyen_gop,
-                so_tien_toi_thieu
+                so_tien_toi_thieu,
+                chi_tiet_do_vat
             }
         });
     } catch (err) {
@@ -290,6 +342,7 @@ exports.createCampaignContribution = async (req, res) => {
     const memberId = req.user?.id;
     const accountType = req.user?.accountType || req.user?.role;
     const so_tien = Number(req.body?.so_tien || 0);
+    const so_luong_do_vat = parseInt(req.body?.so_luong_do_vat || "0", 10);
     const ghi_chu = String(req.body?.ghi_chu || "").trim();
 
     if (accountType !== "thanh_vien") {
@@ -297,18 +350,14 @@ exports.createCampaignContribution = async (req, res) => {
     }
 
     if (!req.file) {
-        return res.status(400).json({ message: "Vui lòng tải lên biên lai chuyển khoản" });
-    }
-
-    if (!Number.isFinite(so_tien) || so_tien <= 0) {
-        return res.status(400).json({ message: "Vui lòng nhập số tiền đã chuyển" });
+        return res.status(400).json({ message: "Vui lòng tải lên ảnh hoặc biên lai" });
     }
 
     try {
         await ensureCampaignExtraColumns();
 
         const [campaigns] = await promiseDb.query(
-            `SELECT ma_hoat_dong, hinh_thuc_quyen_gop, ma_qr_quyen_gop, so_tien_toi_thieu, trang_thai
+            `SELECT ma_hoat_dong, hinh_thuc_quyen_gop, ma_qr_quyen_gop, so_tien_toi_thieu, chi_tiet_do_vat, trang_thai
              FROM hoat_dong_quyen_gop
              WHERE ma_hoat_dong = ?
              LIMIT 1`,
@@ -325,8 +374,36 @@ exports.createCampaignContribution = async (req, res) => {
             return res.status(409).json({ message: "Sự kiện này chưa sẵn sàng để tham gia" });
         }
 
-        if (campaign.hinh_thuc_quyen_gop !== "nhan_tien_chuyen_khoan") {
+        const receiptPath = `/uploads/${req.file.filename}`;
+
+        if (campaign.hinh_thuc_quyen_gop === ITEM_DONATION_TYPE) {
+            if (!Number.isInteger(so_luong_do_vat) || so_luong_do_vat <= 0) {
+                return res.status(400).json({ message: "Vui lòng nhập số lượng đồ vật hợp lệ" });
+            }
+
+            const [result] = await promiseDb.query(
+                `INSERT INTO dong_gop_su_kien
+                    (ma_hoat_dong, ma_thanh_vien, loai_dong_gop, so_tien, so_luong_do_vat, anh_bien_lai, ghi_chu, trang_thai, ngay_xac_nhan)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+                [campaignId, memberId, ITEM_DONATION_TYPE, 0, so_luong_do_vat, receiptPath, ghi_chu || null, CONTRIBUTION_STATUS.CONFIRMED]
+            );
+
+            return res.status(201).json({
+                message: "Đã ghi nhận đồ vật quyên góp",
+                ma_dong_gop: result.insertId,
+                loai_dong_gop: ITEM_DONATION_TYPE,
+                so_luong_do_vat,
+                anh_bien_lai: receiptPath,
+                trang_thai: CONTRIBUTION_STATUS.CONFIRMED
+            });
+        }
+
+        if (campaign.hinh_thuc_quyen_gop !== TRANSFER_DONATION_TYPE) {
             return res.status(409).json({ message: "Hình thức quyên góp này chưa được hỗ trợ" });
+        }
+
+        if (!Number.isFinite(so_tien) || so_tien <= 0) {
+            return res.status(400).json({ message: "Vui lòng nhập số tiền đã chuyển" });
         }
 
         const minimumAmount = Number(campaign.so_tien_toi_thieu || 0);
@@ -338,12 +415,11 @@ exports.createCampaignContribution = async (req, res) => {
             return res.status(400).json({ message: `Số tiền tối thiểu là ${minimumAmount.toLocaleString("vi-VN")} đ` });
         }
 
-        const receiptPath = `/uploads/${req.file.filename}`;
         const [result] = await promiseDb.query(
             `INSERT INTO dong_gop_su_kien
-                (ma_hoat_dong, ma_thanh_vien, so_tien, anh_bien_lai, ghi_chu, trang_thai)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [campaignId, memberId, so_tien, receiptPath, ghi_chu || null, CONTRIBUTION_STATUS.PENDING]
+                (ma_hoat_dong, ma_thanh_vien, loai_dong_gop, so_tien, so_luong_do_vat, anh_bien_lai, ghi_chu, trang_thai)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [campaignId, memberId, TRANSFER_DONATION_TYPE, so_tien, 0, receiptPath, ghi_chu || null, CONTRIBUTION_STATUS.PENDING]
         );
 
         res.status(201).json({

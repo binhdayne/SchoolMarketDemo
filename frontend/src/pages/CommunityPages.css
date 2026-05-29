@@ -363,6 +363,30 @@
   padding: 8px 10px;
 }
 
+.donor-list li > span {
+  display: grid;
+  gap: 2px;
+  margin-right: auto;
+}
+
+.donor-list li small {
+  color: #6b7280;
+}
+
+.donor-list li em {
+  color: #047857;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.donor-item-image {
+  background: #f3f4f6;
+  border-radius: 6px;
+  height: 42px;
+  object-fit: cover;
+  width: 42px;
+}
+
 .event-products-box {
   border-top: 1px solid #f3f4f6;
   display: grid;

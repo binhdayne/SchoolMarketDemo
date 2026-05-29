@@ -72,6 +72,7 @@ CREATE TABLE hoat_dong_quyen_gop (
     hinh_thuc_quyen_gop VARCHAR(50),
     ma_qr_quyen_gop LONGTEXT,
     so_tien_toi_thieu DECIMAL(12,2) DEFAULT 0,
+    chi_tiet_do_vat TEXT,
 
     FOREIGN KEY (ma_to_chuc) REFERENCES to_chuc(ma_to_chuc)
         ON DELETE SET NULL
@@ -82,7 +83,9 @@ CREATE TABLE dong_gop_su_kien (
     ma_dong_gop INT AUTO_INCREMENT PRIMARY KEY,
     ma_hoat_dong INT NOT NULL,
     ma_thanh_vien INT NOT NULL,
+    loai_dong_gop VARCHAR(50) DEFAULT 'nhan_tien_chuyen_khoan',
     so_tien DECIMAL(12,2) NOT NULL,
+    so_luong_do_vat INT DEFAULT 0,
     anh_bien_lai LONGTEXT NOT NULL,
     ghi_chu TEXT,
     trang_thai VARCHAR(50) DEFAULT 'cho_xac_nhan',

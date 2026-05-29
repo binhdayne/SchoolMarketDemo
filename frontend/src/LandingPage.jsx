@@ -14,6 +14,16 @@ const DEFAULT_STATS = {
   members: 0,
   satisfaction: 95,
 };
+const initialPostProductForm = {
+  ten_san_pham: '',
+  gia: '',
+  mo_ta: '',
+  ma_danh_muc: '',
+  tinh_trang: 'Như mới',
+  so_luong: 1,
+  ma_hoat_dong: '',
+  so_phan_tram_quyen_gop: '',
+};
 
 function formatNumber(value) {
   return Number(value || 0).toLocaleString('vi-VN');
@@ -43,6 +53,14 @@ function formatDate(value) {
   return new Date(value).toLocaleDateString('vi-VN');
 }
 
+function isDonationProduct(product) {
+  return Boolean(
+    product.ma_hoat_dong &&
+    product.hinh_thuc_quyen_gop === 'ban_do_quyen_gop' &&
+    Number(product.so_phan_tram_quyen_gop || 0) >= 40
+  );
+}
+
 function getPostTypeLabel(type) {
   if (type === 'keu_goi_tinh_nguyen') return 'Kêu gọi tình nguyện';
   if (type === 'trao_doi_chia_se') return 'Trao đổi chia sẻ';
@@ -54,6 +72,7 @@ export default function LandingPage({
   onLoginClick,
   onRegisterClick,
   isAuthenticated = false,
+  token,
   user,
   accountType,
   onHomeClick,
@@ -61,7 +80,6 @@ export default function LandingPage({
   onDonationClick,
   onActivityClick,
   onAccountClick,
-  onPostProductClick,
   onBuyProductClick,
   onLogout,
 }) {
@@ -75,6 +93,14 @@ export default function LandingPage({
   const [loadingActivityPosts, setLoadingActivityPosts] = useState(true);
   const [selectedBuyProduct, setSelectedBuyProduct] = useState(null);
   const [buyQuantity, setBuyQuantity] = useState(1);
+  const [donationCampaigns, setDonationCampaigns] = useState([]);
+  const [postModalOpen, setPostModalOpen] = useState(false);
+  const [postForm, setPostForm] = useState(initialPostProductForm);
+  const [postFile, setPostFile] = useState(null);
+  const [postPreviewUrl, setPostPreviewUrl] = useState('');
+  const [postMessage, setPostMessage] = useState('');
+  const [postError, setPostError] = useState('');
+  const [postSubmitting, setPostSubmitting] = useState(false);
 
   const displayName = user?.ho_ten || user?.ten_to_chuc || 'Người dùng';
   const roleLabel = accountType === 'to_chuc' ? 'Tổ chức' : accountType === 'admin' ? 'Admin' : 'Thành viên';
@@ -95,7 +121,8 @@ export default function LandingPage({
       axios.get(`${API}/products/categories`),
       axios.get(`${API}/products/public`),
       axios.get(`${API}/posts`),
-    ]).then(([statsResult, categoriesResult, productsResult, postsResult]) => {
+      axios.get(`${API}/campaigns`),
+    ]).then(([statsResult, categoriesResult, productsResult, postsResult, campaignsResult]) => {
       if (!isMounted) return;
 
       if (statsResult.status === 'fulfilled') {
@@ -113,6 +140,11 @@ export default function LandingPage({
       if (postsResult.status === 'fulfilled') {
         setActivityPosts(Array.isArray(postsResult.value.data) ? postsResult.value.data : []);
       }
+
+      if (campaignsResult.status === 'fulfilled') {
+        const campaignList = Array.isArray(campaignsResult.value.data) ? campaignsResult.value.data : [];
+        setDonationCampaigns(campaignList.filter((campaign) => campaign.hinh_thuc_quyen_gop === 'ban_do_quyen_gop'));
+      }
     }).finally(() => {
       if (isMounted) {
         setLoadingProducts(false);
@@ -124,6 +156,18 @@ export default function LandingPage({
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!postFile) {
+      setPostPreviewUrl('');
+      return undefined;
+    }
+
+    const nextPreviewUrl = URL.createObjectURL(postFile);
+    setPostPreviewUrl(nextPreviewUrl);
+
+    return () => URL.revokeObjectURL(nextPreviewUrl);
+  }, [postFile]);
 
   const filteredProducts = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase();
@@ -174,12 +218,120 @@ export default function LandingPage({
     closeBuyDialog();
   };
 
+  const openPostModal = () => {
+    if (!isAuthenticated) {
+      if (onRegisterClick) onRegisterClick();
+      return;
+    }
+
+    setPostModalOpen(true);
+    setPostMessage('');
+    setPostError('');
+  };
+
+  const closePostModal = () => {
+    if (postSubmitting) return;
+    setPostModalOpen(false);
+    setPostForm(initialPostProductForm);
+    setPostFile(null);
+    setPostMessage('');
+    setPostError('');
+  };
+
+  const updatePostForm = (event) => {
+    const { name, value } = event.target;
+    setPostForm((currentForm) => {
+      if (name === 'ma_hoat_dong') {
+        return {
+          ...currentForm,
+          ma_hoat_dong: value,
+          so_phan_tram_quyen_gop: value
+            ? (currentForm.so_phan_tram_quyen_gop || '40')
+            : '',
+        };
+      }
+
+      return { ...currentForm, [name]: value };
+    });
+  };
+
+  const submitPostProduct = async (event) => {
+    event.preventDefault();
+    setPostMessage('');
+    setPostError('');
+
+    if (!token) {
+      setPostError('Bạn cần đăng nhập để đăng sản phẩm.');
+      return;
+    }
+
+    if (!String(user?.ma_ngan_hang || '').trim()) {
+      setPostError('Bạn cần cập nhật mã ngân hàng/QR nhận tiền trước khi đăng bán sản phẩm.');
+      return;
+    }
+
+    if (!postForm.ten_san_pham.trim()) {
+      setPostError('Vui lòng nhập tên sản phẩm.');
+      return;
+    }
+
+    if (!postForm.ma_danh_muc) {
+      setPostError('Vui lòng chọn danh mục.');
+      return;
+    }
+
+    if (Number(postForm.gia || 0) <= 0) {
+      setPostError('Vui lòng nhập giá bán hợp lệ.');
+      return;
+    }
+
+    if (Number(postForm.so_luong || 0) < 1) {
+      setPostError('Số lượng phải lớn hơn 0.');
+      return;
+    }
+
+    const hasDonationCampaign = Boolean(postForm.ma_hoat_dong);
+    const donationPercent = hasDonationCampaign ? Number(postForm.so_phan_tram_quyen_gop || 40) : 0;
+    if (hasDonationCampaign && (donationPercent < 40 || donationPercent > 100)) {
+      setPostError('Phần trăm quyên góp phải từ 40% đến 100%.');
+      return;
+    }
+
+    const formData = new FormData();
+    if (postFile) {
+      formData.append('anh', postFile);
+    }
+    formData.append('ten_san_pham', postForm.ten_san_pham);
+    formData.append('gia', postForm.gia);
+    formData.append('mo_ta', postForm.mo_ta);
+    formData.append('ma_danh_muc', postForm.ma_danh_muc);
+    formData.append('tinh_trang', postForm.tinh_trang);
+    formData.append('so_luong', postForm.so_luong);
+    formData.append('ma_hoat_dong', hasDonationCampaign ? postForm.ma_hoat_dong : '');
+    formData.append('so_phan_tram_quyen_gop', hasDonationCampaign ? String(donationPercent) : '0');
+
+    setPostSubmitting(true);
+
+    try {
+      const res = await axios.post(`${API}/products/create`, formData, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setPostMessage(res.data.message || 'Đã gửi sản phẩm cho admin duyệt.');
+      setPostForm(initialPostProductForm);
+      setPostFile(null);
+    } catch (err) {
+      setPostError(err.response?.data?.error || 'Không thể đăng sản phẩm. Hãy kiểm tra backend và thử lại.');
+    } finally {
+      setPostSubmitting(false);
+    }
+  };
+
   return (
     <div className="app-wrapper">
       <button
         type="button"
         className="fab-button"
-        onClick={isAuthenticated ? onPostProductClick : onRegisterClick}
+        onClick={openPostModal}
         aria-label="Đăng tin"
       >
         <span className="fab-icon">+</span>
@@ -354,6 +506,11 @@ export default function LandingPage({
                       event.currentTarget.src = '/images/school-market-icon-v2.png';
                     }}
                   />
+                  {isDonationProduct(product) && (
+                    <span className="product-donation-tag">
+                      Quyên góp {Number(product.so_phan_tram_quyen_gop || 0)}%
+                    </span>
+                  )}
                 </div>
                 <div className="product-content">
                   <h3 className="product-name">{product.ten_san_pham}</h3>
@@ -424,7 +581,7 @@ export default function LandingPage({
           <h2>Sẵn sàng cho đi và nhận lại?</h2>
           <p>Tham gia cộng đồng và bắt đầu chia sẻ, mua bán đồ cũ một cách bền vững.</p>
           <div className="cta-buttons">
-            <button type="button" className="btn-white" onClick={isAuthenticated ? onPostProductClick : onRegisterClick}>
+            <button type="button" className="btn-white" onClick={openPostModal}>
               Đăng tin miễn phí
             </button>
             <button type="button" className="btn-outline-white" onClick={isAuthenticated ? onActivityClick : onLoginClick}>
@@ -475,6 +632,147 @@ export default function LandingPage({
           </div>
         </div>
       </footer>
+
+      {postModalOpen && (
+        <div className="post-modal-overlay" role="presentation">
+          <form className="post-modal" onSubmit={submitPostProduct} role="dialog" aria-modal="true" aria-labelledby="post-modal-title">
+            <div className="post-modal-header">
+              <div>
+                <h2 id="post-modal-title">Đăng bán sản phẩm</h2>
+                <p>Gửi bài đăng cho admin duyệt trước khi hiển thị trên trang chủ.</p>
+              </div>
+              <button type="button" className="buy-modal-close" onClick={closePostModal} aria-label="Đóng">
+                <LuX size={20} />
+              </button>
+            </div>
+
+            {postMessage && <p className="post-form-alert success">{postMessage}</p>}
+            {postError && <p className="post-form-alert error">{postError}</p>}
+
+            <label className="post-form-field" htmlFor="homePostImage">
+              <span>Ảnh sản phẩm</span>
+              <div className="post-upload-box">
+                <input
+                  id="homePostImage"
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(event) => setPostFile(event.target.files?.[0] || null)}
+                />
+                {postPreviewUrl ? (
+                  <img src={postPreviewUrl} alt="Xem trước ảnh sản phẩm" />
+                ) : (
+                  <strong>Nhấn để chọn ảnh sản phẩm</strong>
+                )}
+              </div>
+            </label>
+
+            <label className="post-form-field" htmlFor="homePostName">
+              <span>Tên sản phẩm</span>
+              <input
+                id="homePostName"
+                name="ten_san_pham"
+                value={postForm.ten_san_pham}
+                onChange={updatePostForm}
+                placeholder="Nhập tên sản phẩm..."
+              />
+            </label>
+
+            <div className="post-form-grid">
+              <label className="post-form-field" htmlFor="homePostCategory">
+                <span>Danh mục</span>
+                <select id="homePostCategory" name="ma_danh_muc" value={postForm.ma_danh_muc} onChange={updatePostForm}>
+                  <option value="">-- Chọn danh mục --</option>
+                  {categories.map((category) => (
+                    <option key={category.ma_danh_muc} value={category.ma_danh_muc}>
+                      {category.ten_danh_muc}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="post-form-field" htmlFor="homePostCondition">
+                <span>Tình trạng</span>
+                <select id="homePostCondition" name="tinh_trang" value={postForm.tinh_trang} onChange={updatePostForm}>
+                  <option value="Như mới">Như mới</option>
+                  <option value="Đã qua sử dụng">Đã qua sử dụng</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="post-form-grid">
+              <label className="post-form-field" htmlFor="homePostPrice">
+                <span>Giá bán (đ)</span>
+                <input
+                  id="homePostPrice"
+                  name="gia"
+                  type="number"
+                  min="1"
+                  value={postForm.gia}
+                  onChange={updatePostForm}
+                  placeholder="Nhập giá bán"
+                />
+              </label>
+
+              <label className="post-form-field" htmlFor="homePostQuantity">
+                <span>Số lượng</span>
+                <input
+                  id="homePostQuantity"
+                  name="so_luong"
+                  type="number"
+                  min="1"
+                  value={postForm.so_luong}
+                  onChange={updatePostForm}
+                />
+              </label>
+            </div>
+
+            <label className="post-form-field" htmlFor="homePostDescription">
+              <span>Mô tả chi tiết</span>
+              <textarea
+                id="homePostDescription"
+                name="mo_ta"
+                value={postForm.mo_ta}
+                onChange={updatePostForm}
+                placeholder="Nhập mô tả chi tiết..."
+              />
+            </label>
+
+            <div className="post-donation-box">
+              <label className="post-form-field" htmlFor="homePostCampaign">
+                <span>Bán cho hoạt động quyên góp nào</span>
+                <select id="homePostCampaign" name="ma_hoat_dong" value={postForm.ma_hoat_dong} onChange={updatePostForm}>
+                  <option value="">Không bán quyên góp</option>
+                  {donationCampaigns.map((campaign) => (
+                    <option key={campaign.ma_hoat_dong} value={campaign.ma_hoat_dong}>
+                      {campaign.ten_hoat_dong}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="post-form-field" htmlFor="homePostDonationPercent">
+                <span>Phần trăm quyên góp</span>
+                <input
+                  id="homePostDonationPercent"
+                  name="so_phan_tram_quyen_gop"
+                  type="number"
+                  min="40"
+                  max="100"
+                  value={postForm.so_phan_tram_quyen_gop}
+                  onChange={updatePostForm}
+                  placeholder="Tối thiểu 40%"
+                  disabled={!postForm.ma_hoat_dong}
+                />
+              </label>
+            </div>
+
+            <button type="submit" className="post-submit-btn" disabled={postSubmitting}>
+              {postSubmitting ? 'Đang gửi...' : 'Gửi admin duyệt'}
+            </button>
+          </form>
+        </div>
+      )}
 
       {selectedBuyProduct && (
         <div className="buy-modal-overlay" role="presentation">

@@ -9,6 +9,7 @@ import DonationEventsPage from "./pages/DonationEventsPage";
 import ActivityPostsPage from "./pages/ActivityPostsPage";
 import MemberAccountPage from "./pages/MemberAccountPage";
 import ProductPurchasePage from "./pages/ProductPurchasePage";
+import { LuCalendar, LuHeart, LuShoppingBag } from "react-icons/lu";
 
 const API = "http://localhost:5000/api";
 
@@ -490,6 +491,7 @@ function App() {
     return (
       <LandingPage
         isAuthenticated
+        token={token}
         user={currentUser}
         accountType={accountType}
         onHomeClick={goHome}
@@ -501,6 +503,67 @@ function App() {
         onBuyProductClick={openProductPurchase}
         onLogout={handleLogout}
       />
+    );
+  }
+
+  if (accountType === "thanh_vien") {
+    return (
+      <div className="app-wrapper">
+        <MemberNavbar
+          user={currentUser}
+          activeView={view}
+          onHomeClick={goHome}
+          onDashboardClick={() => setView("dashboard")}
+          onDonationClick={() => setView("donations")}
+          onActivityClick={() => setView("activities")}
+          onAccountClick={() => setView("member-account")}
+          onLogout={handleLogout}
+        />
+
+        {notice && <p style={{ ...styles.notice, ...styles.memberNotice }}>{notice}</p>}
+
+        {view === "donations" ? (
+          <DonationEventsPage
+            token={token}
+            accountType={accountType}
+            onBackHome={goHome}
+            onLoginRequired={() => setAuthMode("login")}
+            onBuyProductClick={openProductPurchase}
+          />
+        ) : view === "activities" ? (
+          <ActivityPostsPage
+            token={token}
+            accountType={accountType}
+            onBackHome={goHome}
+          />
+        ) : view === "member-account" ? (
+          <MemberAccountPage
+            token={token}
+            onBackHome={goHome}
+            onProfileUpdated={handleMemberProfileUpdate}
+          />
+        ) : view === "product-purchase" ? (
+          <ProductPurchasePage
+            productId={selectedProductId}
+            purchaseQuantity={selectedPurchaseQuantity}
+            token={token}
+            navigate={navigate}
+            onBackHome={goHome}
+          />
+        ) : view === "post-product" ? (
+          <PostProductPage
+            navigate={navigate}
+            token={token}
+          />
+        ) : (
+          <MemberPage
+            user={currentUser}
+            token={token}
+            navigate={navigate}
+            onLogout={handleLogout}
+          />
+        )}
+      </div>
     );
   }
 
@@ -695,6 +758,73 @@ function PublicHeader({ onHomeClick, onLoginClick, onRegisterClick }) {
         <button type="button" onClick={onRegisterClick} style={styles.publicRegisterButton}>
           Đăng ký
         </button>
+      </div>
+    </header>
+  );
+}
+
+function MemberNavbar({
+  user,
+  activeView,
+  onHomeClick,
+  onDashboardClick,
+  onDonationClick,
+  onActivityClick,
+  onAccountClick,
+  onLogout,
+}) {
+  const displayName = getDisplayName(user);
+
+  return (
+    <header className="navbar">
+      <div className="nav-container">
+        <button
+          type="button"
+          className="nav-logo nav-logo-button"
+          onClick={onHomeClick}
+          aria-label="Về trang chủ School Market"
+        >
+          <img
+            src="/images/school-market-icon-v2.png"
+            alt="School Market"
+            style={{ width: 36, height: 36, borderRadius: 10, objectFit: "cover", boxShadow: "0 4px 10px rgba(82, 167, 116, 0.2)" }}
+          />
+          <span className="logo-text">School Market</span>
+        </button>
+
+        <div className="nav-links">
+          <button
+            type="button"
+            className={activeView === "dashboard" || activeView === "post-product" ? "nav-link active" : "nav-link"}
+            onClick={onDashboardClick}
+          >
+            <LuShoppingBag size={18} /> Đăng bán cá nhân
+          </button>
+          <button
+            type="button"
+            className={activeView === "donations" ? "nav-link active" : "nav-link"}
+            onClick={onDonationClick}
+          >
+            <LuHeart size={18} /> Quyên góp
+          </button>
+          <button
+            type="button"
+            className={activeView === "activities" ? "nav-link active" : "nav-link"}
+            onClick={onActivityClick}
+          >
+            <LuCalendar size={18} /> Hoạt động
+          </button>
+        </div>
+
+        <div className="nav-actions">
+          <button type="button" className="nav-user nav-user-button" onClick={onAccountClick}>
+            <span className="nav-user-name">{displayName}</span>
+            <span className="nav-user-role">Thành viên</span>
+          </button>
+          <button type="button" onClick={onLogout} className="btn-primary">
+            Đăng xuất
+          </button>
+        </div>
       </div>
     </header>
   );
@@ -1589,6 +1719,10 @@ const styles = {
     color: "#006f5c",
     margin: "0 0 16px",
     padding: "12px 14px",
+  },
+  memberNotice: {
+    margin: "16px auto 0",
+    maxWidth: 1200,
   },
   adminPage: {
     display: "flex",
