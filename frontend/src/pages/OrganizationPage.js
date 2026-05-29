@@ -53,6 +53,16 @@ function OrganizationPage({
   const [contributionMessage, setContributionMessage] = useState("");
   const [contributionError, setContributionError] = useState("");
   const [confirmingContributionId, setConfirmingContributionId] = useState(null);
+  const [donationSales, setDonationSales] = useState([]);
+  const [loadingDonationSales, setLoadingDonationSales] = useState(false);
+  const [donationSalesMessage, setDonationSalesMessage] = useState("");
+  const [donationSalesError, setDonationSalesError] = useState("");
+  const [confirmingDonationSaleId, setConfirmingDonationSaleId] = useState(null);
+  const [sellerPayouts, setSellerPayouts] = useState([]);
+  const [loadingSellerPayouts, setLoadingSellerPayouts] = useState(false);
+  const [sellerPayoutMessage, setSellerPayoutMessage] = useState("");
+  const [sellerPayoutError, setSellerPayoutError] = useState("");
+  const [confirmingSellerPayoutId, setConfirmingSellerPayoutId] = useState(null);
 
   const loadApprovedEvents = useCallback(async () => {
     if (!token) return;
@@ -91,6 +101,42 @@ function OrganizationPage({
     }
   }, [token]);
 
+  const loadDonationSales = useCallback(async () => {
+    if (!token) return;
+
+    setLoadingDonationSales(true);
+    setDonationSalesError("");
+
+    try {
+      const res = await axios.get(`${API}/products/organization-donation-sales`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setDonationSales(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      setDonationSalesError(err.response?.data?.error || "Không thể tải biên lai mua sản phẩm quyên góp.");
+    } finally {
+      setLoadingDonationSales(false);
+    }
+  }, [token]);
+
+  const loadSellerPayouts = useCallback(async () => {
+    if (!token) return;
+
+    setLoadingSellerPayouts(true);
+    setSellerPayoutError("");
+
+    try {
+      const res = await axios.get(`${API}/products/organization-seller-payouts`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setSellerPayouts(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      setSellerPayoutError(err.response?.data?.error || "Không thể tải khoản cần thanh toán cho người bán.");
+    } finally {
+      setLoadingSellerPayouts(false);
+    }
+  }, [token]);
+
   useEffect(() => {
     setForm(getProfileForm(user));
   }, [user]);
@@ -98,7 +144,9 @@ function OrganizationPage({
   useEffect(() => {
     loadApprovedEvents();
     loadPendingContributions();
-  }, [loadApprovedEvents, loadPendingContributions]);
+    loadDonationSales();
+    loadSellerPayouts();
+  }, [loadApprovedEvents, loadPendingContributions, loadDonationSales, loadSellerPayouts]);
 
   const handleChange = (event) => {
     setForm((currentForm) => ({ ...currentForm, [event.target.name]: event.target.value }));
@@ -292,6 +340,59 @@ function OrganizationPage({
     }
   };
 
+  const handleConfirmDonationSale = async (sale) => {
+    const ok = window.confirm(`Xác nhận biên lai mua "${sale.ten_san_pham}"?`);
+    if (!ok) return;
+
+    setConfirmingDonationSaleId(sale.ma_thanh_toan);
+    setDonationSalesMessage("");
+    setDonationSalesError("");
+
+    try {
+      const res = await axios.put(
+        `${API}/products/organization-donation-sales/${sale.ma_thanh_toan}/confirm`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setDonationSalesMessage(res.data.message || "Đã xác nhận biên lai mua sản phẩm quyên góp.");
+      setDonationSales((currentSales) =>
+        currentSales.filter((item) => item.ma_thanh_toan !== sale.ma_thanh_toan)
+      );
+      await loadSellerPayouts();
+    } catch (err) {
+      setDonationSalesError(err.response?.data?.error || "Không thể xác nhận biên lai mua sản phẩm quyên góp.");
+    } finally {
+      setConfirmingDonationSaleId(null);
+    }
+  };
+
+  const handleConfirmSellerPayout = async (payout) => {
+    const ok = window.confirm(`Xác nhận đã thanh toán cho ${payout.ten_nguoi_ban || "người bán"}?`);
+    if (!ok) return;
+
+    setConfirmingSellerPayoutId(payout.ma_thanh_toan);
+    setSellerPayoutMessage("");
+    setSellerPayoutError("");
+
+    try {
+      const res = await axios.put(
+        `${API}/products/organization-seller-payouts/${payout.ma_thanh_toan}/confirm`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setSellerPayoutMessage(res.data.message || "Đã xác nhận thanh toán cho người bán.");
+      setSellerPayouts((currentPayouts) =>
+        currentPayouts.filter((item) => item.ma_thanh_toan !== payout.ma_thanh_toan)
+      );
+    } catch (err) {
+      setSellerPayoutError(err.response?.data?.error || "Không thể xác nhận thanh toán cho người bán.");
+    } finally {
+      setConfirmingSellerPayoutId(null);
+    }
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setSaving(true);
@@ -369,6 +470,24 @@ function OrganizationPage({
             error={contributionError}
             confirmingContributionId={confirmingContributionId}
             onConfirmContribution={handleConfirmContribution}
+          />
+
+          <OrganizationDonationSaleRequests
+            sales={donationSales}
+            loading={loadingDonationSales}
+            message={donationSalesMessage}
+            error={donationSalesError}
+            confirmingSaleId={confirmingDonationSaleId}
+            onConfirmSale={handleConfirmDonationSale}
+          />
+
+          <OrganizationSellerPayouts
+            payouts={sellerPayouts}
+            loading={loadingSellerPayouts}
+            message={sellerPayoutMessage}
+            error={sellerPayoutError}
+            confirmingPayoutId={confirmingSellerPayoutId}
+            onConfirmPayout={handleConfirmSellerPayout}
           />
         </>
       )}
@@ -484,6 +603,133 @@ function OrganizationContributionRequests({
                 >
                   {confirmingContributionId === contribution.ma_dong_gop ? "Đang xác nhận..." : "Xác nhận"}
                 </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function OrganizationDonationSaleRequests({
+  sales,
+  loading,
+  message,
+  error,
+  confirmingSaleId,
+  onConfirmSale,
+}) {
+  return (
+    <section style={styles.eventsSection} aria-label="Biên lai mua sản phẩm quyên góp chờ xác nhận">
+      <div style={styles.sectionHeader}>
+        <div>
+          <h2 style={styles.sectionTitle}>Biên lai mua sản phẩm quyên góp</h2>
+          <p style={styles.sectionDescription}>Người mua chuyển khoản vào QR sự kiện và gửi biên lai để tổ chức xác nhận.</p>
+        </div>
+      </div>
+
+      {message && <p style={styles.successMessage}>{message}</p>}
+      {error && <p style={styles.errorMessage}>{error}</p>}
+
+      {loading ? (
+        <p style={styles.emptyText}>Đang tải biên lai mua sản phẩm...</p>
+      ) : sales.length === 0 ? (
+        <p style={styles.emptyText}>Chưa có biên lai mua sản phẩm quyên góp nào đang chờ xác nhận.</p>
+      ) : (
+        <div style={styles.contributionCards}>
+          {sales.map((sale) => (
+            <article key={sale.ma_thanh_toan} style={styles.contributionCard}>
+              <img
+                src={getAssetUrl(sale.anh_xac_nhan_giao_dich)}
+                alt="Biên lai mua sản phẩm quyên góp"
+                style={styles.contributionReceipt}
+              />
+              <div style={styles.contributionBody}>
+                <h3 style={styles.eventCardTitle}>{sale.ten_san_pham}</h3>
+                <p style={styles.eventCardText}>Sự kiện: {sale.ten_hoat_dong || "-"}</p>
+                <p style={styles.eventCardText}>
+                  Người mua: {sale.ten_nguoi_mua || "Thành viên"} - {sale.lop_nguoi_mua || "Chưa cập nhật lớp"}
+                </p>
+                <p style={styles.eventCardText}>
+                  Người bán: {sale.ten_nguoi_ban || "Thành viên"} - {sale.lop_nguoi_ban || "Chưa cập nhật lớp"}
+                </p>
+                <p style={styles.eventCardText}>Số lượng: {sale.so_luong || 1}</p>
+                <p style={styles.eventCardText}>Tổng tiền: {formatCurrency(sale.so_tien_giao_dich)}</p>
+                <p style={styles.eventCardText}>Vào quỹ: {formatCurrency(sale.so_tien_quyen_gop)}</p>
+                <p style={styles.eventCardText}>Nợ người bán: {formatCurrency(sale.so_tien_tra_nguoi_ban)}</p>
+                {sale.ghi_chu && <p style={styles.eventCardText}>Ghi chú: {sale.ghi_chu}</p>}
+                <button
+                  type="button"
+                  onClick={() => onConfirmSale(sale)}
+                  style={styles.saveButton}
+                  disabled={confirmingSaleId === sale.ma_thanh_toan}
+                >
+                  {confirmingSaleId === sale.ma_thanh_toan ? "Đang xác nhận..." : "Xác nhận biên lai"}
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function OrganizationSellerPayouts({
+  payouts,
+  loading,
+  message,
+  error,
+  confirmingPayoutId,
+  onConfirmPayout,
+}) {
+  return (
+    <section style={styles.eventsSection} aria-label="Khoản cần thanh toán cho người bán">
+      <div style={styles.sectionHeader}>
+        <div>
+          <h2 style={styles.sectionTitle}>Khoản cần thanh toán cho người bán</h2>
+          <p style={styles.sectionDescription}>Phần còn lại sau khi trích phần trăm quyên góp cho sự kiện.</p>
+        </div>
+      </div>
+
+      {message && <p style={styles.successMessage}>{message}</p>}
+      {error && <p style={styles.errorMessage}>{error}</p>}
+
+      {loading ? (
+        <p style={styles.emptyText}>Đang tải khoản cần thanh toán...</p>
+      ) : payouts.length === 0 ? (
+        <p style={styles.emptyText}>Không có khoản nào đang chờ thanh toán cho người bán.</p>
+      ) : (
+        <div style={styles.payoutCards}>
+          {payouts.map((payout) => (
+            <article key={payout.ma_thanh_toan} style={styles.payoutCard}>
+              <div style={styles.payoutInfo}>
+                <h3 style={styles.eventCardTitle}>{payout.ten_san_pham}</h3>
+                <p style={styles.eventCardText}>Sự kiện: {payout.ten_hoat_dong || "-"}</p>
+                <p style={styles.eventCardText}>
+                  Người bán: {payout.ten_nguoi_ban || "Thành viên"} - {payout.lop_nguoi_ban || "Chưa cập nhật lớp"}
+                </p>
+                <p style={styles.eventCardText}>Tổng tiền người mua đã chuyển: {formatCurrency(payout.so_tien_giao_dich)}</p>
+                <p style={styles.eventCardText}>Phần quyên góp: {formatCurrency(payout.so_tien_quyen_gop)}</p>
+                <p style={styles.payoutAmount}>Cần trả người bán: {formatCurrency(payout.so_tien_tra_nguoi_ban)}</p>
+                <p style={styles.eventCardText}>Ngân hàng: {payout.ten_ngan_hang || "Chưa cập nhật"}</p>
+                <p style={styles.eventCardText}>Số tài khoản: {payout.so_tai_khoan || "Chưa cập nhật"}</p>
+                <button
+                  type="button"
+                  onClick={() => onConfirmPayout(payout)}
+                  style={styles.saveButton}
+                  disabled={confirmingPayoutId === payout.ma_thanh_toan}
+                >
+                  {confirmingPayoutId === payout.ma_thanh_toan ? "Đang xác nhận..." : "Xác nhận đã thanh toán"}
+                </button>
+              </div>
+              <div style={styles.payoutQrBox}>
+                <img
+                  src={getAssetUrl(payout.ma_ngan_hang)}
+                  alt="QR cá nhân của người bán"
+                  style={styles.payoutQrImage}
+                />
               </div>
             </article>
           ))}
@@ -1094,6 +1340,46 @@ const styles = {
     alignContent: "start",
     display: "grid",
     gap: 8,
+  },
+  payoutCards: {
+    display: "grid",
+    gap: 14,
+    gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+  },
+  payoutCard: {
+    backgroundColor: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 8,
+    display: "grid",
+    gap: 14,
+    gridTemplateColumns: "minmax(0, 1fr) 180px",
+    padding: 14,
+  },
+  payoutInfo: {
+    alignContent: "start",
+    display: "grid",
+    gap: 8,
+  },
+  payoutAmount: {
+    color: "#047857",
+    fontSize: 17,
+    fontWeight: 800,
+    margin: 0,
+  },
+  payoutQrBox: {
+    alignItems: "center",
+    backgroundColor: "#f9fafb",
+    border: "1px dashed #cbd5e1",
+    borderRadius: 8,
+    display: "flex",
+    justifyContent: "center",
+    minHeight: 180,
+    overflow: "hidden",
+  },
+  payoutQrImage: {
+    maxHeight: 220,
+    objectFit: "contain",
+    width: "100%",
   },
   deleteButton: {
     backgroundColor: "#dc2626",

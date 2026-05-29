@@ -28,10 +28,16 @@ export default function ProductPurchasePage({ productId, purchaseQuantity = 1, t
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
   const selectedQuantity = product
     ? Math.min(Math.max(1, Number(purchaseQuantity) || 1), Math.max(1, Number(product.so_luong || 0)))
     : Math.max(1, Number(purchaseQuantity) || 1);
   const totalPrice = Number(product?.gia || 0) * selectedQuantity;
+  const isDonationProduct = Boolean(product?.la_san_pham_quyen_gop);
+  const donationPercent = Number(product?.so_phan_tram_quyen_gop || 0);
+  const donationAmount = isDonationProduct ? Math.round(totalPrice * donationPercent / 100) : 0;
+  const sellerPayoutAmount = isDonationProduct ? Math.max(0, totalPrice - donationAmount) : 0;
+  const paymentQr = product?.qr_thanh_toan || product?.ma_ngan_hang;
 
   useEffect(() => {
     if (!receipt) {
@@ -98,7 +104,11 @@ export default function ProductPurchasePage({ productId, purchaseQuantity = 1, t
       const res = await axios.post(`${API}/products/${productId}/purchase`, formData, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setMessage(res.data.message || 'Đã gửi biên lai cho người bán xác nhận.');
+      setMessage(
+        isDonationProduct
+          ? 'Đã gửi biên lai cho tổ chức xác nhận.'
+          : (res.data.message || 'Đã gửi biên lai cho người bán xác nhận.')
+      );
     } catch (err) {
       setError(err.response?.data?.error || 'Không thể xác nhận giao dịch mua hàng.');
     } finally {
@@ -150,21 +160,47 @@ export default function ProductPurchasePage({ productId, purchaseQuantity = 1, t
                 <strong>{product.so_luong || 1}</strong>
                 <span>Người bán</span>
                 <strong>{product.ten_nguoi_ban || 'Thành viên'}</strong>
+                {isDonationProduct && (
+                  <>
+                    <span>Sự kiện</span>
+                    <strong>{product.ten_hoat_dong || 'Sự kiện quyên góp'}</strong>
+                    <span>Quyên góp</span>
+                    <strong>{donationPercent}%</strong>
+                  </>
+                )}
               </div>
               <p className="purchase-description">{product.mo_ta || 'Chưa có mô tả.'}</p>
             </div>
           </section>
 
           <aside className="purchase-payment">
-            <h3>Thông tin chuyển khoản</h3>
+            <h3>{isDonationProduct ? 'Chuyển khoản cho sự kiện' : 'Thông tin chuyển khoản'}</h3>
             <div className="seller-qr-box">
-              <img src={getAssetUrl(product.ma_ngan_hang)} alt="QR nhận tiền của người bán" />
+              <img
+                src={getAssetUrl(paymentQr)}
+                alt={isDonationProduct ? 'QR nhận tiền của sự kiện quyên góp' : 'QR nhận tiền của người bán'}
+              />
             </div>
             <div className="purchase-info-grid compact">
-              <span>Ngân hàng</span>
-              <strong>{product.ten_ngan_hang || 'Chưa cập nhật'}</strong>
-              <span>Số tài khoản</span>
-              <strong>{product.so_tai_khoan || 'Chưa cập nhật'}</strong>
+              {isDonationProduct ? (
+                <>
+                  <span>Người nhận</span>
+                  <strong>{product.ten_nguoi_nhan || product.ten_to_chuc || 'Tổ chức'}</strong>
+                  <span>Sự kiện</span>
+                  <strong>{product.ten_hoat_dong || 'Sự kiện quyên góp'}</strong>
+                  <span>Vào quỹ</span>
+                  <strong>{formatCurrency(donationAmount)}</strong>
+                  <span>Tổ chức trả người bán</span>
+                  <strong>{formatCurrency(sellerPayoutAmount)}</strong>
+                </>
+              ) : (
+                <>
+                  <span>Ngân hàng</span>
+                  <strong>{product.ten_ngan_hang || 'Chưa cập nhật'}</strong>
+                  <span>Số tài khoản</span>
+                  <strong>{product.so_tai_khoan || 'Chưa cập nhật'}</strong>
+                </>
+              )}
               <span>Số lượng</span>
               <strong>{selectedQuantity}</strong>
               <span>Số tiền</span>
@@ -189,7 +225,7 @@ export default function ProductPurchasePage({ productId, purchaseQuantity = 1, t
 
             <textarea
               className="purchase-note"
-              placeholder="Ghi chú cho người bán nếu cần..."
+              placeholder={isDonationProduct ? 'Ghi chú cho tổ chức nếu cần...' : 'Ghi chú cho người bán nếu cần...'}
               value={note}
               onChange={(event) => setNote(event.target.value)}
               disabled={Boolean(message)}
