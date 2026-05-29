@@ -168,9 +168,12 @@ exports.getPublicProducts = async (req, res) => {
                 sp.ma_danh_muc,
                 sp.ma_hoat_dong,
                 sp.so_phan_tram_quyen_gop,
-                dm.ten_danh_muc
+                dm.ten_danh_muc,
+                hd.ten_hoat_dong,
+                hd.hinh_thuc_quyen_gop
              FROM san_pham sp
              LEFT JOIN danh_muc dm ON dm.ma_danh_muc = sp.ma_danh_muc
+             LEFT JOIN hoat_dong_quyen_gop hd ON hd.ma_hoat_dong = sp.ma_hoat_dong
              WHERE sp.trang_thai = ? AND COALESCE(sp.so_luong, 0) > 0
              ORDER BY sp.ngay_dang DESC, sp.ma_san_pham DESC`,
             [PRODUCT_STATUS.APPROVED]
@@ -220,7 +223,7 @@ exports.getCampaignProducts = async (req, res) => {
 
         res.json(products);
     } catch (err) {
-        res.status(500).json({ error: "KhĂ´ng thá»ƒ láº¥y sáº£n pháº©m quyĂªn gĂ³p cá»§a sá»± kiá»‡n: " + err.message });
+        res.status(500).json({ error: "Không thể lấy sản phẩm quyên góp của sự kiện: " + err.message });
     }
 };
 
@@ -274,12 +277,12 @@ exports.createProduct = async (req, res) => {
         let finalPhanTram = so_phan_tram_quyen_gop ? parseInt(so_phan_tram_quyen_gop, 10) : 0;
 
         if (!Number.isInteger(finalSoLuong) || finalSoLuong < 1) {
-            return res.status(400).json({ error: "Sá»‘ lÆ°á»£ng sáº£n pháº©m khĂ´ng há»£p lá»‡." });
+            return res.status(400).json({ error: "Số lượng sản phẩm không hợp lệ." });
         }
 
         if (finalMaHoatDong) {
             if (!Number.isInteger(finalPhanTram) || finalPhanTram < 40 || finalPhanTram > 100) {
-                return res.status(400).json({ error: "Pháº§n trÄƒm quyĂªn gĂ³p pháº£i tá»« 40% Ä‘áº¿n 100%." });
+                return res.status(400).json({ error: "Phần trăm quyên góp phải từ 40% đến 100%." });
             }
 
             const [campaigns] = await promiseDb.query(
@@ -291,12 +294,12 @@ exports.createProduct = async (req, res) => {
             );
 
             if (campaigns.length === 0) {
-                return res.status(404).json({ error: "KhĂ´ng tĂ¬m tháº¥y sá»± kiá»‡n quyĂªn gĂ³p." });
+                return res.status(404).json({ error: "Không tìm thấy sự kiện quyên góp." });
             }
 
             const campaign = campaigns[0];
             if (campaign.trang_thai !== PRODUCT_STATUS.APPROVED || campaign.hinh_thuc_quyen_gop !== DONATION_PRODUCT_TYPE) {
-                return res.status(409).json({ error: "Sá»± kiá»‡n nĂ y khĂ´ng há»— trá»£ Ä‘Äƒng sáº£n pháº©m quyĂªn gĂ³p." });
+                return res.status(409).json({ error: "Sự kiện này không hỗ trợ đăng sản phẩm quyên góp." });
             }
         } else {
             finalPhanTram = 0;
@@ -431,11 +434,11 @@ exports.getPurchaseDetail = async (req, res) => {
         );
 
         if (isDonationProduct && product.trang_thai_hoat_dong !== PRODUCT_STATUS.APPROVED) {
-            return res.status(409).json({ error: "Sá»± kiá»‡n quyĂªn gĂ³p cá»§a sáº£n pháº©m nĂ y chÆ°a sáºµn sĂ ng." });
+            return res.status(409).json({ error: "Sự kiện quyên góp của sản phẩm này chưa sẵn sàng." });
         }
 
         if (isDonationProduct && !String(product.ma_qr_quyen_gop || "").trim()) {
-            return res.status(409).json({ error: "Sá»± kiá»‡n nĂ y chÆ°a cĂ³ QR nháº­n chuyá»ƒn khoáº£n." });
+            return res.status(409).json({ error: "Sự kiện này chưa có QR nhận chuyển khoản." });
         }
 
         if (!String(product.ma_ngan_hang || "").trim()) {
@@ -459,7 +462,7 @@ exports.getPurchaseDetail = async (req, res) => {
                 product.ma_hoat_dong &&
                 product.hinh_thuc_quyen_gop === DONATION_PRODUCT_TYPE &&
                 Number(product.so_phan_tram_quyen_gop || 0) >= 40
-                    ? (product.ten_to_chuc || product.ten_hoat_dong || "Tá»• chá»©c")
+                    ? (product.ten_to_chuc || product.ten_hoat_dong || "Tổ chức")
                     : product.ten_nguoi_ban
         });
     } catch (err) {
@@ -543,12 +546,12 @@ exports.createPurchase = async (req, res) => {
 
         if (isDonationProduct && product.trang_thai_hoat_dong !== PRODUCT_STATUS.APPROVED) {
             await promiseDb.rollback();
-            return res.status(409).json({ error: "Sá»± kiá»‡n quyĂªn gĂ³p cá»§a sáº£n pháº©m nĂ y chÆ°a sáºµn sĂ ng." });
+            return res.status(409).json({ error: "Sự kiện quyên góp của sản phẩm này chưa sẵn sàng." });
         }
 
         if (isDonationProduct && (!String(product.ma_qr_quyen_gop || "").trim() || !product.ma_to_chuc)) {
             await promiseDb.rollback();
-            return res.status(409).json({ error: "Sá»± kiá»‡n nĂ y chÆ°a cĂ³ QR nháº­n chuyá»ƒn khoáº£n." });
+            return res.status(409).json({ error: "Sự kiện này chưa có QR nhận chuyển khoản." });
         }
 
         const availableQuantity = Number(product.so_luong || 0);
@@ -801,7 +804,7 @@ exports.getOrganizationDonationSales = async (req, res) => {
 
         res.json(payments);
     } catch (err) {
-        res.status(500).json({ error: "KhĂ´ng thá»ƒ láº¥y biĂªn lai mua sáº£n pháº©m quyĂªn gĂ³p: " + err.message });
+        res.status(500).json({ error: "Không thể lấy biên lai mua sản phẩm quyên góp: " + err.message });
     }
 };
 
@@ -829,13 +832,13 @@ exports.confirmOrganizationDonationSale = async (req, res) => {
 
         if (payments.length === 0) {
             await promiseDb.rollback();
-            return res.status(404).json({ error: "KhĂ´ng tĂ¬m tháº¥y giao dá»‹ch thuá»™c sá»± kiá»‡n cá»§a tá»• chá»©c." });
+            return res.status(404).json({ error: "Không tìm thấy giao dịch thuộc sự kiện của tổ chức." });
         }
 
         const payment = payments[0];
         if (payment.trang_thai !== PAYMENT_STATUS.PENDING_ORGANIZATION) {
             await promiseDb.rollback();
-            return res.status(409).json({ error: "Giao dá»‹ch nĂ y Ä‘Ă£ Ä‘Æ°á»£c xá»­ lĂ½." });
+            return res.status(409).json({ error: "Giao dịch này đã được xử lý." });
         }
 
         const nextPayoutStatus = Number(payment.so_tien_tra_nguoi_ban || 0) > 0
@@ -854,7 +857,7 @@ exports.confirmOrganizationDonationSale = async (req, res) => {
         await promiseDb.commit();
 
         res.json({
-            message: "ÄĂ£ xĂ¡c nháº­n biĂªn lai mua sáº£n pháº©m quyĂªn gĂ³p.",
+            message: "Đã xác nhận biên lai mua sản phẩm quyên góp.",
             trang_thai: PAYMENT_STATUS.COMPLETED,
             trang_thai_chi_tra_nguoi_ban: nextPayoutStatus
         });
@@ -862,9 +865,9 @@ exports.confirmOrganizationDonationSale = async (req, res) => {
         try {
             await promiseDb.rollback();
         } catch (rollbackErr) {
-            console.error("KhĂ´ng thá»ƒ rollback xĂ¡c nháº­n giao dá»‹ch quyĂªn gĂ³p:", rollbackErr);
+            console.error("Không thể rollback xác nhận giao dịch quyên góp:", rollbackErr);
         }
-        res.status(500).json({ error: "KhĂ´ng thá»ƒ xĂ¡c nháº­n biĂªn lai mua sáº£n pháº©m quyĂªn gĂ³p: " + err.message });
+        res.status(500).json({ error: "Không thể xác nhận biên lai mua sản phẩm quyên góp: " + err.message });
     }
 };
 
@@ -909,7 +912,7 @@ exports.getOrganizationSellerPayouts = async (req, res) => {
 
         res.json(payments);
     } catch (err) {
-        res.status(500).json({ error: "KhĂ´ng thá»ƒ láº¥y khoáº£n cáº§n thanh toĂ¡n cho ngÆ°á»i bĂ¡n: " + err.message });
+        res.status(500).json({ error: "Không thể lấy khoản cần thanh toán cho người bán: " + err.message });
     }
 };
 
@@ -936,7 +939,7 @@ exports.confirmOrganizationSellerPayout = async (req, res) => {
 
         if (payments.length === 0) {
             await promiseDb.rollback();
-            return res.status(404).json({ error: "KhĂ´ng tĂ¬m tháº¥y khoáº£n thanh toĂ¡n thuá»™c tá»• chá»©c." });
+            return res.status(404).json({ error: "Không tìm thấy khoản thanh toán thuộc tổ chức." });
         }
 
         const payment = payments[0];
@@ -945,7 +948,7 @@ exports.confirmOrganizationSellerPayout = async (req, res) => {
             payment.trang_thai_chi_tra_nguoi_ban !== SELLER_PAYOUT_STATUS.PENDING
         ) {
             await promiseDb.rollback();
-            return res.status(409).json({ error: "Khoáº£n thanh toĂ¡n nĂ y khĂ´ng cĂ²n chá» chi tráº£." });
+            return res.status(409).json({ error: "Khoản thanh toán này không còn chờ chi trả." });
         }
 
         await promiseDb.execute(
@@ -959,16 +962,16 @@ exports.confirmOrganizationSellerPayout = async (req, res) => {
         await promiseDb.commit();
 
         res.json({
-            message: "ÄĂ£ xĂ¡c nháº­n thanh toĂ¡n cho ngÆ°á»i bĂ¡n.",
+            message: "Đã xác nhận thanh toán cho người bán.",
             trang_thai_chi_tra_nguoi_ban: SELLER_PAYOUT_STATUS.PAID
         });
     } catch (err) {
         try {
             await promiseDb.rollback();
         } catch (rollbackErr) {
-            console.error("KhĂ´ng thá»ƒ rollback chi tráº£ ngÆ°á»i bĂ¡n:", rollbackErr);
+            console.error("Không thể rollback chi trả người bán:", rollbackErr);
         }
-        res.status(500).json({ error: "KhĂ´ng thá»ƒ xĂ¡c nháº­n thanh toĂ¡n cho ngÆ°á»i bĂ¡n: " + err.message });
+        res.status(500).json({ error: "Không thể xác nhận thanh toán cho người bán: " + err.message });
     }
 };
 
