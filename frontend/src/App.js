@@ -9,7 +9,8 @@ import DonationEventsPage from "./pages/DonationEventsPage";
 import ActivityPostsPage from "./pages/ActivityPostsPage";
 import MemberAccountPage from "./pages/MemberAccountPage";
 import ProductPurchasePage from "./pages/ProductPurchasePage";
-import { LuCalendar, LuHeart, LuShoppingBag } from "react-icons/lu";
+import ComplaintPage from "./pages/ComplaintPage";
+import { LuCalendar, LuFlag, LuHeart, LuShoppingBag } from "react-icons/lu";
 
 const API = "http://localhost:5000/api";
 
@@ -51,6 +52,7 @@ function App() {
   const [pendingCampaigns, setPendingCampaigns] = useState([]);
   const [pendingProducts, setPendingProducts] = useState([]);
   const [pendingPosts, setPendingPosts] = useState([]);
+  const [adminComplaints, setAdminComplaints] = useState([]);
   const [adminMembers, setAdminMembers] = useState([]);
   const [adminOrganizations, setAdminOrganizations] = useState([]);
   const [loadingAdminData, setLoadingAdminData] = useState(false);
@@ -73,13 +75,14 @@ function App() {
 
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [pendingRes, membersRes, organizationsRes, pendingCampaignsRes, pendingProductsRes, pendingPostsRes] = await Promise.all([
+      const [pendingRes, membersRes, organizationsRes, pendingCampaignsRes, pendingProductsRes, pendingPostsRes, complaintsRes] = await Promise.all([
         axios.get(`${API}/auth/pending-accounts`, { headers }),
         axios.get(`${API}/auth/members`, { headers }),
         axios.get(`${API}/auth/organizations`, { headers }),
         axios.get(`${API}/campaigns/pending`, { headers }),
         axios.get(`${API}/products/pending`, { headers }),
         axios.get(`${API}/posts/pending`, { headers }),
+        axios.get(`${API}/complaints`, { headers }),
       ]);
 
       setPendingAccounts(pendingRes.data);
@@ -88,6 +91,7 @@ function App() {
       setPendingCampaigns(pendingCampaignsRes.data);
       setPendingProducts(pendingProductsRes.data);
       setPendingPosts(pendingPostsRes.data);
+      setAdminComplaints(complaintsRes.data);
     } catch (err) {
       setNotice(err.response?.data?.message || "Không thể tải dữ liệu trang admin.");
     } finally {
@@ -167,6 +171,24 @@ function App() {
     }
   }, [role, token]);
 
+  const loadAdminComplaints = useCallback(async () => {
+    if (!token || role !== "admin") return;
+
+    setLoadingAdminData(true);
+    setNotice("");
+
+    try {
+      const res = await axios.get(`${API}/complaints`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setAdminComplaints(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      setNotice(err.response?.data?.message || "Không thể tải danh sách tố cáo khiếu nại.");
+    } finally {
+      setLoadingAdminData(false);
+    }
+  }, [role, token]);
+
   useEffect(() => {
     loadAdminData();
   }, [loadAdminData]);
@@ -207,6 +229,7 @@ function App() {
     setPendingCampaigns([]);
     setPendingProducts([]);
     setPendingPosts([]);
+    setAdminComplaints([]);
     setAdminMembers([]);
     setAdminOrganizations([]);
     setActiveAdminView("pending");
@@ -341,6 +364,23 @@ function App() {
       setNotice(res.data.message);
     } catch (err) {
       setNotice(err.response?.data?.message || "Không thể cập nhật bài đăng hoạt động.");
+    }
+  };
+
+  const deleteComplaint = async (complaint) => {
+    if (!window.confirm("Xóa tố cáo khiếu nại này?")) return;
+
+    try {
+      const res = await axios.delete(`${API}/complaints/${complaint.ma_to_cao}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      setAdminComplaints((prev) =>
+        prev.filter((item) => item.ma_to_cao !== complaint.ma_to_cao)
+      );
+      setNotice(res.data.message || "Đã xóa tố cáo khiếu nại.");
+    } catch (err) {
+      setNotice(err.response?.data?.message || "Không thể xóa tố cáo khiếu nại.");
     }
   };
 
@@ -498,6 +538,7 @@ function App() {
         onDashboardClick={() => setView("dashboard")}
         onDonationClick={() => setView("donations")}
         onActivityClick={() => setView("activities")}
+        onComplaintClick={() => setView("complaints")}
         onAccountClick={() => setView(accountType === "thanh_vien" ? "member-account" : "dashboard")}
         onPostProductClick={openPostProduct}
         onBuyProductClick={openProductPurchase}
@@ -516,6 +557,7 @@ function App() {
           onDashboardClick={() => setView("dashboard")}
           onDonationClick={() => setView("donations")}
           onActivityClick={() => setView("activities")}
+          onComplaintClick={() => setView("complaints")}
           onAccountClick={() => setView("member-account")}
           onLogout={handleLogout}
         />
@@ -534,6 +576,11 @@ function App() {
           <ActivityPostsPage
             token={token}
             accountType={accountType}
+            onBackHome={goHome}
+          />
+        ) : view === "complaints" ? (
+          <ComplaintPage
+            token={token}
             onBackHome={goHome}
           />
         ) : view === "member-account" ? (
@@ -587,6 +634,7 @@ function App() {
             <button
               type="button"
               onClick={() => {
+                setView("dashboard");
                 if (organizationEventCreatorOpen) {
                   setOrganizationEventCreatorOpen(false);
                   setOrganizationManagerOpen(false);
@@ -628,12 +676,26 @@ function App() {
             <button
               type="button"
               onClick={() => {
+                setView("dashboard");
                 setOrganizationEventCreatorOpen(false);
                 setOrganizationManagerOpen((isOpen) => !isOpen);
               }}
               style={styles.manageOrgButton}
             >
               {organizationManagerOpen ? "Đóng quản lý" : "Quản lý tài khoản"}
+            </button>
+          )}
+          {accountType === "to_chuc" && (
+            <button
+              type="button"
+              onClick={() => {
+                setOrganizationEventCreatorOpen(false);
+                setOrganizationManagerOpen(false);
+                setView("complaints");
+              }}
+              style={styles.manageOrgButton}
+            >
+              Tố cáo khiếu nại
             </button>
           )}
           <span style={styles.roleBadge}>{getRoleLabel(accountType)}</span>
@@ -649,6 +711,7 @@ function App() {
           pendingCampaigns={pendingCampaigns}
           pendingProducts={pendingProducts}
           pendingPosts={pendingPosts}
+          complaints={adminComplaints}
           members={adminMembers}
           organizations={adminOrganizations}
           activeView={activeAdminView}
@@ -659,12 +722,14 @@ function App() {
           onReloadCampaigns={loadPendingCampaigns}
           onReloadProducts={loadPendingProducts}
           onReloadPosts={loadPendingActivityPosts}
+          onReloadComplaints={loadAdminComplaints}
           onOpenBanDialog={openBanDialog}
           onUnbanAccount={unbanAccount}
           onUpdateStatus={updateAccountStatus}
           onUpdateCampaignStatus={updateCampaignStatus}
           onUpdateProductStatus={updateProductStatus}
           onUpdatePostStatus={updatePostStatus}
+          onDeleteComplaint={deleteComplaint}
         />
       ) : view === "donations" ? (
         <DonationEventsPage
@@ -678,6 +743,11 @@ function App() {
         <ActivityPostsPage
           token={token}
           accountType={accountType}
+          onBackHome={goHome}
+        />
+      ) : view === "complaints" ? (
+        <ComplaintPage
+          token={token}
           onBackHome={goHome}
         />
       ) : accountType === "to_chuc" ? (
@@ -770,6 +840,7 @@ function MemberNavbar({
   onDashboardClick,
   onDonationClick,
   onActivityClick,
+  onComplaintClick,
   onAccountClick,
   onLogout,
 }) {
@@ -814,6 +885,13 @@ function MemberNavbar({
           >
             <LuCalendar size={18} /> Hoạt động
           </button>
+          <button
+            type="button"
+            className={activeView === "complaints" ? "nav-link active" : "nav-link"}
+            onClick={onComplaintClick}
+          >
+            <LuFlag size={18} /> Tố cáo khiếu nại
+          </button>
         </div>
 
         <div className="nav-actions">
@@ -835,6 +913,7 @@ function AdminDashboard({
   pendingCampaigns,
   pendingProducts,
   pendingPosts,
+  complaints,
   members,
   organizations,
   activeView,
@@ -845,12 +924,14 @@ function AdminDashboard({
   onReloadCampaigns,
   onReloadProducts,
   onReloadPosts,
+  onReloadComplaints,
   onOpenBanDialog,
   onUnbanAccount,
   onUpdateStatus,
   onUpdateCampaignStatus,
   onUpdateProductStatus,
   onUpdatePostStatus,
+  onDeleteComplaint,
 }) {
   const views = [
     {
@@ -888,6 +969,12 @@ function AdminDashboard({
       title: "Bài đăng",
       count: pendingPosts.length,
       description: "Duyệt hoặc từ chối bài đăng hoạt động của thành viên.",
+    },
+    {
+      key: "complaints",
+      title: "Tố cáo",
+      count: complaints.length,
+      description: "Xem và xóa tố cáo khiếu nại do thành viên hoặc tổ chức gửi.",
     },
   ];
 
@@ -952,6 +1039,13 @@ function AdminDashboard({
           loading={loading}
           onReload={onReloadPosts}
           onUpdateStatus={onUpdatePostStatus}
+        />
+      ) : activeView === "complaints" ? (
+        <AdminComplaintsTable
+          complaints={complaints}
+          loading={loading}
+          onReload={onReloadComplaints}
+          onDelete={onDeleteComplaint}
         />
       ) : (
         <AdminPendingAccounts
@@ -1437,6 +1531,79 @@ function AdminPendingPosts({ posts, loading, onReload, onUpdateStatus }) {
   );
 }
 
+function AdminComplaintsTable({ complaints, loading, onReload, onDelete }) {
+  return (
+    <section style={styles.section}>
+      <div style={styles.sectionHeader}>
+        <div>
+          <h2 style={styles.sectionTitle}>Tố cáo khiếu nại</h2>
+          <p style={styles.sectionDescription}>Danh sách phản ánh do thành viên hoặc tổ chức gửi tới admin.</p>
+        </div>
+        <button onClick={onReload} style={styles.secondaryButton}>
+          Tải lại
+        </button>
+      </div>
+
+      {loading ? (
+        <p style={styles.empty}>Đang tải danh sách...</p>
+      ) : complaints.length === 0 ? (
+        <p style={styles.empty}>Chưa có tố cáo khiếu nại nào.</p>
+      ) : (
+        <div style={styles.tableWrap}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Ảnh</th>
+                <th style={styles.th}>Người gửi</th>
+                <th style={styles.th}>Loại tài khoản</th>
+                <th style={styles.th}>Liên hệ</th>
+                <th style={styles.th}>Nội dung</th>
+                <th style={styles.th}>Ngày gửi</th>
+                <th style={styles.th}>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {complaints.map((complaint) => (
+                <tr key={complaint.ma_to_cao}>
+                  <td style={styles.td}>
+                    {complaint.anh_minh_chung ? (
+                      <a href={getAssetUrl(complaint.anh_minh_chung)} target="_blank" rel="noreferrer">
+                        <img
+                          src={getAssetUrl(complaint.anh_minh_chung)}
+                          alt="Ảnh minh chứng"
+                          style={styles.complaintThumb}
+                        />
+                      </a>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                  <td style={styles.td}>{complaint.ten_nguoi_gui || "-"}</td>
+                  <td style={styles.td}>{getRoleLabel(complaint.loai_tai_khoan)}</td>
+                  <td style={{ ...styles.td, ...styles.longTextCell }}>
+                    {[complaint.email_nguoi_gui, complaint.sdt_nguoi_gui].filter(Boolean).join(" - ") || "-"}
+                  </td>
+                  <td style={{ ...styles.td, ...styles.longTextCell }}>{complaint.noi_dung || "-"}</td>
+                  <td style={styles.td}>{complaint.ngay_gui ? formatDate(complaint.ngay_gui) : "-"}</td>
+                  <td style={styles.td}>
+                    <button
+                      type="button"
+                      onClick={() => onDelete(complaint)}
+                      style={styles.rejectButton}
+                    >
+                      Xóa
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function BanAccountDialog({ account, reason, submitting, onChangeReason, onClose, onSubmit }) {
   return (
     <div style={styles.modalOverlay} role="presentation">
@@ -1825,6 +1992,12 @@ const styles = {
     height: 54,
     objectFit: "cover",
     width: 76,
+  },
+  complaintThumb: {
+    borderRadius: 6,
+    height: 64,
+    objectFit: "cover",
+    width: 92,
   },
   actions: {
     display: "flex",

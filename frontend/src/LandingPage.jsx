@@ -3,7 +3,7 @@ import axios from 'axios';
 import {
   LuSearch, LuFilter, LuHeart, LuShoppingBag, LuCalendar,
   LuClock, LuChevronRight, LuTrendingUp, LuUsers, LuPackage, LuMessagesSquare,
-  LuMinus, LuPlus, LuX
+  LuMinus, LuPlus, LuX, LuFlag
 } from 'react-icons/lu';
 import './LandingPage.css';
 
@@ -79,6 +79,7 @@ export default function LandingPage({
   onDashboardClick,
   onDonationClick,
   onActivityClick,
+  onComplaintClick,
   onAccountClick,
   onBuyProductClick,
   onLogout,
@@ -88,6 +89,7 @@ export default function LandingPage({
   const [products, setProducts] = useState([]);
   const [activityPosts, setActivityPosts] = useState([]);
   const [activeCategory, setActiveCategory] = useState('all');
+  const [productMode, setProductMode] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadingActivityPosts, setLoadingActivityPosts] = useState(true);
@@ -173,9 +175,15 @@ export default function LandingPage({
     const keyword = searchTerm.trim().toLowerCase();
 
     return products.filter((product) => {
+      const matchesProductMode =
+        productMode === 'all' ||
+        (productMode === 'donation'
+          ? isDonationProduct(product)
+          : !isDonationProduct(product));
       const matchesCategory =
         activeCategory === 'all' || Number(product.ma_danh_muc) === Number(activeCategory);
 
+      if (!matchesProductMode) return false;
       if (!matchesCategory) return false;
       if (!keyword) return true;
 
@@ -186,7 +194,7 @@ export default function LandingPage({
         product.ten_danh_muc,
       ].some((value) => String(value || '').toLowerCase().includes(keyword));
     });
-  }, [activeCategory, products, searchTerm]);
+  }, [activeCategory, productMode, products, searchTerm]);
 
   const updateBuyQuantity = (nextValue) => {
     const maxQuantity = Math.max(1, selectedBuyStock);
@@ -363,6 +371,9 @@ export default function LandingPage({
             </button>
             <button type="button" className="nav-link" onClick={onDonationClick}><LuHeart size={18} /> Quyên góp</button>
             <button type="button" className="nav-link" onClick={onActivityClick}><LuCalendar size={18} /> Hoạt động</button>
+            {isAuthenticated && (
+              <button type="button" className="nav-link" onClick={onComplaintClick}><LuFlag size={18} /> Tố cáo khiếu nại</button>
+            )}
           </div>
 
           <div className="nav-actions">
@@ -406,8 +417,30 @@ export default function LandingPage({
         </p>
 
         <div className="hero-tabs">
-          <button type="button" className="tab-btn active"><LuShoppingBag size={18} /> Mua bán</button>
-          <button type="button" className="tab-btn" onClick={onDonationClick}><LuHeart size={18} /> Quyên góp</button>
+          <button
+            type="button"
+            className={`tab-btn ${productMode === 'all' ? 'active' : ''}`}
+            aria-pressed={productMode === 'all'}
+            onClick={() => setProductMode('all')}
+          >
+            <LuPackage size={18} /> Tất cả
+          </button>
+          <button
+            type="button"
+            className={`tab-btn ${productMode === 'sale' ? 'active' : ''}`}
+            aria-pressed={productMode === 'sale'}
+            onClick={() => setProductMode('sale')}
+          >
+            <LuShoppingBag size={18} /> Mua bán
+          </button>
+          <button
+            type="button"
+            className={`tab-btn ${productMode === 'donation' ? 'active' : ''}`}
+            aria-pressed={productMode === 'donation'}
+            onClick={() => setProductMode('donation')}
+          >
+            <LuHeart size={18} /> Quyên góp
+          </button>
         </div>
 
         <div className="search-container">

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import './MemberPage.css';
 import {
-  LuCalendar,
+  LuBuilding2,
   LuCheck,
   LuCreditCard,
   LuEye,
@@ -10,7 +10,9 @@ import {
   LuPackage,
   LuPackage2,
   LuPlus,
+  LuReceiptText,
   LuTrash2,
+  LuUpload,
 } from 'react-icons/lu';
 
 const API = 'http://localhost:5000/api';
@@ -30,11 +32,139 @@ function getProductStatus(product) {
   return { className: 'pending', label: product.trang_thai || 'Chưa cập nhật' };
 }
 
+function formatCurrency(value) {
+  return `${new Intl.NumberFormat('vi-VN').format(Number(value || 0))}đ`;
+}
+
+function formatDate(value) {
+  if (!value) return '-';
+  return new Date(value).toLocaleDateString('vi-VN');
+}
+
+function getSystemFeeAmount(payment) {
+  const storedFee = Number(payment.phi_he_thong || 0);
+  if (storedFee > 0) return storedFee;
+  return Math.round(Number(payment.so_tien_giao_dich || 0) * 0.05);
+}
+
+function MemberPaymentTab({
+  loading,
+  systemFees,
+  organizationDebts,
+  systemFeeReceipt,
+  submittingSystemFee,
+  onReceiptChange,
+  onSubmitSystemFee,
+}) {
+  const systemFeeTotal = systemFees.reduce((total, payment) => total + getSystemFeeAmount(payment), 0);
+  const organizationDebtTotal = organizationDebts.reduce(
+    (total, debt) => total + Number(debt.so_tien_tra_nguoi_ban || 0),
+    0
+  );
+
+  return (
+    <div className="payment-grid">
+      <section className="payment-panel">
+        <div className="payment-panel-heading">
+          <span className="payment-panel-icon"><LuReceiptText size={20} /></span>
+          <div>
+            <h3>Tiền cần thanh toán cho hệ thống</h3>
+            <p>Phí hệ thống 5% chỉ tính sau khi bạn xác nhận đã nhận tiền từ người mua.</p>
+          </div>
+        </div>
+
+        <div className="payment-total-row">
+          <span>Tổng cần nộp</span>
+          <strong>{formatCurrency(systemFeeTotal)}</strong>
+        </div>
+        <p className="payment-due-note">Hạn nộp: ngày 30 hàng tháng</p>
+
+        {loading ? (
+          <p className="payment-empty">Đang tải dữ liệu thanh toán...</p>
+        ) : systemFees.length === 0 ? (
+          <p className="payment-empty">Không có khoản phí hệ thống nào cần nộp.</p>
+        ) : (
+          <div className="payment-list">
+            {systemFees.map((payment) => (
+              <article className="payment-item" key={payment.ma_thanh_toan}>
+                <div>
+                  <h4>{payment.ten_san_pham || 'Sản phẩm'}</h4>
+                  <p>
+                    {payment.so_luong || 1} sản phẩm - Doanh thu {formatCurrency(payment.so_tien_giao_dich)}
+                  </p>
+                  <p>Phí hệ thống 5%: {formatCurrency(getSystemFeeAmount(payment))}</p>
+                </div>
+                <span>{payment.ngay_gui ? formatDate(payment.ngay_gui) : '-'}</span>
+              </article>
+            ))}
+          </div>
+        )}
+
+        {systemFees.length > 0 && (
+          <form className="system-fee-form" onSubmit={onSubmitSystemFee}>
+            <label className="system-fee-upload">
+              <span>Biên lai nộp phí</span>
+              <input type="file" accept="image/*" onChange={onReceiptChange} />
+            </label>
+            {systemFeeReceipt && <p className="selected-receipt">{systemFeeReceipt.name}</p>}
+            <button type="submit" className="seller-confirm-btn" disabled={submittingSystemFee || !systemFeeReceipt}>
+              <LuUpload size={16} /> {submittingSystemFee ? 'Đang nộp...' : 'Nộp biên lai'}
+            </button>
+          </form>
+        )}
+      </section>
+
+      <section className="payment-panel">
+        <div className="payment-panel-heading">
+          <span className="payment-panel-icon organization"><LuBuilding2 size={20} /></span>
+          <div>
+            <h3>Tiền tổ chức còn nợ</h3>
+            <p>Phần còn lại tổ chức phải trả cho bạn sau khi trích tỷ lệ quyên góp.</p>
+          </div>
+        </div>
+
+        <div className="payment-total-row organization">
+          <span>Tổng tổ chức nợ</span>
+          <strong>{formatCurrency(organizationDebtTotal)}</strong>
+        </div>
+        <p className="payment-due-note">Hạn tổ chức phải trả: ngày kết thúc sự kiện</p>
+
+        {loading ? (
+          <p className="payment-empty">Đang tải khoản tổ chức nợ...</p>
+        ) : organizationDebts.length === 0 ? (
+          <p className="payment-empty">Không có khoản tổ chức nợ nào đang chờ thanh toán.</p>
+        ) : (
+          <div className="payment-list">
+            {organizationDebts.map((debt) => (
+              <article className="payment-item" key={debt.ma_thanh_toan}>
+                <div>
+                  <h4>{debt.ten_san_pham || 'Sản phẩm quyên góp'}</h4>
+                  <p>{debt.ten_to_chuc || 'Tổ chức'} - {debt.ten_hoat_dong || 'Sự kiện quyên góp'}</p>
+                  <p>
+                    Quyên góp {Number(debt.so_phan_tram_quyen_gop || 0)}%,
+                    tổ chức nợ {formatCurrency(debt.so_tien_tra_nguoi_ban)}
+                  </p>
+                  <p>Tổng tiền người mua: {formatCurrency(debt.so_tien_giao_dich)}</p>
+                </div>
+                <span>Hạn: {formatDate(debt.han_ket_thuc)}</span>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 export default function MemberPage({ user, token, navigate }) {
   const [activeTab, setActiveTab] = useState('Sản phẩm của tôi');
   const [stats, setStats] = useState({ spDaDang: 0, daBan: 0, quyenGop: 0 });
   const [myProducts, setMyProducts] = useState([]);
   const [memberProfile, setMemberProfile] = useState(user || {});
+  const [paymentSummary, setPaymentSummary] = useState({ systemFees: [], organizationDebts: [] });
+  const [loadingPayments, setLoadingPayments] = useState(false);
+  const [systemFeeReceipt, setSystemFeeReceipt] = useState(null);
+  const [submittingSystemFee, setSubmittingSystemFee] = useState(false);
   const [notice, setNotice] = useState('');
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, productId: null });
   const [processingPaymentId, setProcessingPaymentId] = useState(null);
@@ -43,18 +173,25 @@ export default function MemberPage({ user, token, navigate }) {
     if (!token) return;
 
     const headers = { Authorization: `Bearer ${token}` };
+    setLoadingPayments(true);
 
     try {
-      const [statsRes, productsRes, profileRes] = await Promise.all([
+      const [statsRes, productsRes, profileRes, paymentRes] = await Promise.all([
         axios.get(`${API}/dashboard/member-stats`, { headers }),
         axios.get(`${API}/products/my-products`, { headers }),
         axios.get(`${API}/auth/member-profile`, { headers }),
+        axios.get(`${API}/products/member-payment-summary`, { headers }),
       ]);
 
       const products = Array.isArray(productsRes.data) ? productsRes.data : [];
+      const nextPaymentSummary = paymentRes.data || {};
 
       setMyProducts(products);
       setMemberProfile(profileRes.data?.user || {});
+      setPaymentSummary({
+        systemFees: Array.isArray(nextPaymentSummary.systemFees) ? nextPaymentSummary.systemFees : [],
+        organizationDebts: Array.isArray(nextPaymentSummary.organizationDebts) ? nextPaymentSummary.organizationDebts : [],
+      });
       setStats({
         ...statsRes.data,
         spDaDang: products.length,
@@ -63,6 +200,8 @@ export default function MemberPage({ user, token, navigate }) {
     } catch (err) {
       console.error('Lỗi tải dữ liệu thành viên:', err);
       setNotice(err.response?.data?.error || err.response?.data?.message || 'Không thể tải dữ liệu thành viên.');
+    } finally {
+      setLoadingPayments(false);
     }
   }, [token]);
 
@@ -142,6 +281,55 @@ export default function MemberPage({ user, token, navigate }) {
     }
   };
 
+  const handleSystemFeeReceiptChange = (event) => {
+    const file = event.target.files?.[0] || null;
+    setNotice('');
+
+    if (file && !file.type.startsWith('image/')) {
+      setSystemFeeReceipt(null);
+      setNotice('Vui lòng chọn đúng file ảnh biên lai.');
+      return;
+    }
+
+    setSystemFeeReceipt(file);
+  };
+
+  const submitSystemFeeReceipt = async (event) => {
+    event.preventDefault();
+
+    const systemFees = paymentSummary.systemFees || [];
+    if (systemFees.length === 0) {
+      setNotice('Không có khoản phí hệ thống nào cần nộp.');
+      return;
+    }
+
+    if (!systemFeeReceipt) {
+      setNotice('Vui lòng tải lên biên lai nộp phí hệ thống.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('receipt', systemFeeReceipt);
+    formData.append('payment_ids', JSON.stringify(systemFees.map((payment) => payment.ma_thanh_toan)));
+
+    setSubmittingSystemFee(true);
+    setNotice('');
+
+    try {
+      const res = await axios.post(`${API}/products/system-fees/submit`, formData, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      setSystemFeeReceipt(null);
+      setNotice(res.data.message || 'Đã ghi nhận biên lai phí hệ thống.');
+      await loadMemberData();
+    } catch (err) {
+      setNotice(err.response?.data?.error || 'Không thể nộp biên lai phí hệ thống.');
+    } finally {
+      setSubmittingSystemFee(false);
+    }
+  };
+
   return (
     <div className="member-container">
       <div className="profile-header">
@@ -164,7 +352,6 @@ export default function MemberPage({ user, token, navigate }) {
         {[
           { name: 'Sản phẩm của tôi', icon: <LuPackage2 size={18} /> },
           { name: 'Thanh toán', icon: <LuCreditCard size={18} /> },
-          { name: 'Hoạt động', icon: <LuCalendar size={18} /> },
         ].map((tab) => (
           <button
             key={tab.name}
@@ -307,6 +494,16 @@ export default function MemberPage({ user, token, navigate }) {
           ) : (
             <p style={{ color: '#666', fontSize: '14px' }}>Chưa có dữ liệu cho Sản phẩm của tôi</p>
           )
+        ) : activeTab === 'Thanh toán' ? (
+          <MemberPaymentTab
+            loading={loadingPayments}
+            systemFees={paymentSummary.systemFees || []}
+            organizationDebts={paymentSummary.organizationDebts || []}
+            systemFeeReceipt={systemFeeReceipt}
+            submittingSystemFee={submittingSystemFee}
+            onReceiptChange={handleSystemFeeReceiptChange}
+            onSubmitSystemFee={submitSystemFeeReceipt}
+          />
         ) : (
           <p style={{ color: '#666', fontSize: '14px' }}>Chưa có dữ liệu cho {activeTab}</p>
         )}

@@ -22,6 +22,7 @@ const SELLER_PAYOUT_STATUS = {
 };
 
 const DONATION_PRODUCT_TYPE = 'ban_do_quyen_gop';
+const SYSTEM_FEE_RATE = 0.05;
 
 const DEFAULT_CATEGORIES = [
     'Đồ dùng học tập',
@@ -33,6 +34,7 @@ const DEFAULT_CATEGORIES = [
 ];
 
 let productImageColumnReady = false;
+let productOrganizationColumnReady = false;
 let defaultCategoriesReady = false;
 let paymentQuantityColumnReady = false;
 
@@ -41,6 +43,20 @@ async function ensureProductImageColumn() {
 
     await promiseDb.query("ALTER TABLE san_pham MODIFY COLUMN anh LONGTEXT NULL");
     productImageColumnReady = true;
+}
+
+async function ensureProductOrganizationColumn() {
+    if (productOrganizationColumnReady) return;
+
+    try {
+        await promiseDb.query("ALTER TABLE san_pham ADD COLUMN ma_to_chuc INT NULL AFTER ma_thanh_vien");
+    } catch (err) {
+        if (err.code !== "ER_DUP_FIELDNAME") {
+            throw err;
+        }
+    }
+
+    productOrganizationColumnReady = true;
 }
 
 async function ensureDefaultCategories() {
@@ -74,6 +90,9 @@ async function ensurePaymentQuantityColumn() {
     const paymentColumnStatements = [
         "ALTER TABLE thanh_toan ADD COLUMN so_tien_quyen_gop DECIMAL(12,2) DEFAULT 0 AFTER so_luong",
         "ALTER TABLE thanh_toan ADD COLUMN so_tien_tra_nguoi_ban DECIMAL(12,2) DEFAULT 0 AFTER so_tien_quyen_gop",
+        "ALTER TABLE thanh_toan ADD COLUMN phi_he_thong DECIMAL(12,2) DEFAULT 0 AFTER so_tien_tra_nguoi_ban",
+        "ALTER TABLE thanh_toan ADD COLUMN anh_bien_lai_phi_he_thong VARCHAR(255) NULL AFTER anh_xac_nhan_giao_dich",
+        "ALTER TABLE thanh_toan ADD COLUMN ngay_nop_phi_he_thong DATETIME NULL AFTER anh_bien_lai_phi_he_thong",
         "ALTER TABLE thanh_toan ADD COLUMN trang_thai_chi_tra_nguoi_ban VARCHAR(50) DEFAULT 'khong_can_chi_tra' AFTER trang_thai",
         "ALTER TABLE thanh_toan ADD COLUMN ngay_xac_nhan_to_chuc DATETIME NULL AFTER ngay_gui",
         "ALTER TABLE thanh_toan ADD COLUMN ngay_chi_tra_nguoi_ban DATETIME NULL AFTER ngay_xac_nhan_to_chuc"
@@ -92,6 +111,7 @@ async function ensurePaymentQuantityColumn() {
     await promiseDb.query("UPDATE thanh_toan SET so_luong = 1 WHERE so_luong IS NULL OR so_luong < 1");
     await promiseDb.query("UPDATE thanh_toan SET so_tien_quyen_gop = 0 WHERE so_tien_quyen_gop IS NULL");
     await promiseDb.query("UPDATE thanh_toan SET so_tien_tra_nguoi_ban = 0 WHERE so_tien_tra_nguoi_ban IS NULL");
+    await promiseDb.query("UPDATE thanh_toan SET phi_he_thong = 0 WHERE phi_he_thong IS NULL");
     await promiseDb.query(
         "UPDATE thanh_toan SET trang_thai_chi_tra_nguoi_ban = ? WHERE trang_thai_chi_tra_nguoi_ban IS NULL OR trang_thai_chi_tra_nguoi_ban = ''",
         [SELLER_PAYOUT_STATUS.NONE]
@@ -153,6 +173,7 @@ exports.getMarketplaceStats = async (req, res) => {
 exports.getPublicProducts = async (req, res) => {
     try {
         await ensureProductImageColumn();
+        await ensureProductOrganizationColumn();
 
         const [products] = await promiseDb.query(
             `SELECT
@@ -167,6 +188,7 @@ exports.getPublicProducts = async (req, res) => {
                 sp.ngay_dang,
                 sp.ma_danh_muc,
                 sp.ma_hoat_dong,
+                sp.ma_to_chuc,
                 sp.so_phan_tram_quyen_gop,
                 dm.ten_danh_muc,
                 hd.ten_hoat_dong,
@@ -190,6 +212,7 @@ exports.getCampaignProducts = async (req, res) => {
 
     try {
         await ensureProductImageColumn();
+        await ensureProductOrganizationColumn();
 
         const [products] = await promiseDb.query(
             `SELECT
@@ -204,14 +227,16 @@ exports.getCampaignProducts = async (req, res) => {
                 sp.ngay_dang,
                 sp.ma_danh_muc,
                 sp.ma_hoat_dong,
+                sp.ma_to_chuc,
                 sp.so_phan_tram_quyen_gop,
                 dm.ten_danh_muc,
-                seller.ho_ten AS ten_nguoi_ban,
+                COALESCE(seller.ho_ten, org.ten_to_chuc) AS ten_nguoi_ban,
                 hd.ten_hoat_dong
              FROM san_pham sp
              INNER JOIN hoat_dong_quyen_gop hd ON hd.ma_hoat_dong = sp.ma_hoat_dong
              LEFT JOIN danh_muc dm ON dm.ma_danh_muc = sp.ma_danh_muc
              LEFT JOIN thanh_vien seller ON seller.ma_thanh_vien = sp.ma_thanh_vien
+             LEFT JOIN to_chuc org ON org.ma_to_chuc = sp.ma_to_chuc
              WHERE sp.ma_hoat_dong = ?
                 AND sp.trang_thai = ?
                 AND COALESCE(sp.so_luong, 0) > 0
@@ -230,6 +255,7 @@ exports.getCampaignProducts = async (req, res) => {
 exports.createProduct = async (req, res) => {
     try {
         await ensureProductImageColumn();
+        await ensureProductOrganizationColumn();
         await ensureDefaultCategories();
 
         if (!req.body || Object.keys(req.body).length === 0) {
@@ -250,23 +276,14 @@ exports.createProduct = async (req, res) => {
             tinh_trang, so_luong, so_phan_tram_quyen_gop, ma_hoat_dong
         } = req.body;
 
-        const ma_thanh_vien = req.user.id;
+        const userId = req.user.id;
         const accountType = req.user?.accountType || req.user?.role;
+        const isMember = accountType === 'thanh_vien';
+        const isOrganization = accountType === 'to_chuc';
 
-        if (accountType !== 'thanh_vien') {
+        if (!isMember && !isOrganization) {
             return res.status(403).json({
-                error: "Chỉ thành viên mới có thể đăng bán sản phẩm."
-            });
-        }
-
-        const [members] = await promiseDb.query(
-            "SELECT ma_ngan_hang FROM thanh_vien WHERE ma_thanh_vien = ? LIMIT 1",
-            [ma_thanh_vien]
-        );
-
-        if (!String(members[0]?.ma_ngan_hang || "").trim()) {
-            return res.status(400).json({
-                error: "Bạn cần cập nhật mã ngân hàng/QR nhận tiền trước khi đăng bán sản phẩm."
+                error: "Tài khoản này không có quyền đăng bán sản phẩm."
             });
         }
 
@@ -280,13 +297,32 @@ exports.createProduct = async (req, res) => {
             return res.status(400).json({ error: "Số lượng sản phẩm không hợp lệ." });
         }
 
+        if (isMember) {
+            const [members] = await promiseDb.query(
+                "SELECT ma_ngan_hang FROM thanh_vien WHERE ma_thanh_vien = ? LIMIT 1",
+                [userId]
+            );
+
+            if (!String(members[0]?.ma_ngan_hang || "").trim()) {
+                return res.status(400).json({
+                    error: "Bạn cần cập nhật mã ngân hàng/QR nhận tiền trước khi đăng bán sản phẩm."
+                });
+            }
+        }
+
+        if (isOrganization && !finalMaHoatDong) {
+            return res.status(400).json({
+                error: "Tổ chức chỉ có thể thêm sản phẩm vào sự kiện bán đồ quyên góp."
+            });
+        }
+
         if (finalMaHoatDong) {
-            if (!Number.isInteger(finalPhanTram) || finalPhanTram < 40 || finalPhanTram > 100) {
+            if (isMember && (!Number.isInteger(finalPhanTram) || finalPhanTram < 40 || finalPhanTram > 100)) {
                 return res.status(400).json({ error: "Phần trăm quyên góp phải từ 40% đến 100%." });
             }
 
             const [campaigns] = await promiseDb.query(
-                `SELECT ma_hoat_dong, hinh_thuc_quyen_gop, trang_thai
+                `SELECT ma_hoat_dong, ma_to_chuc, hinh_thuc_quyen_gop, trang_thai
                  FROM hoat_dong_quyen_gop
                  WHERE ma_hoat_dong = ?
                  LIMIT 1`,
@@ -298,21 +334,40 @@ exports.createProduct = async (req, res) => {
             }
 
             const campaign = campaigns[0];
-            if (campaign.trang_thai !== PRODUCT_STATUS.APPROVED || campaign.hinh_thuc_quyen_gop !== DONATION_PRODUCT_TYPE) {
+            if (campaign.hinh_thuc_quyen_gop !== DONATION_PRODUCT_TYPE) {
                 return res.status(409).json({ error: "Sự kiện này không hỗ trợ đăng sản phẩm quyên góp." });
+            }
+
+            if (isMember && campaign.trang_thai !== PRODUCT_STATUS.APPROVED) {
+                return res.status(409).json({ error: "Sự kiện này chưa sẵn sàng nhận sản phẩm quyên góp." });
+            }
+
+            if (isOrganization) {
+                if (Number(campaign.ma_to_chuc) !== Number(userId)) {
+                    return res.status(403).json({ error: "Bạn không có quyền thêm sản phẩm cho sự kiện này." });
+                }
+
+                if (![PRODUCT_STATUS.PENDING, PRODUCT_STATUS.APPROVED].includes(campaign.trang_thai)) {
+                    return res.status(409).json({ error: "Sự kiện này không còn nhận sản phẩm quyên góp." });
+                }
+
+                finalPhanTram = 100;
             }
         } else {
             finalPhanTram = 0;
         }
 
+        const ownerMemberId = isMember ? userId : null;
+        const ownerOrganizationId = isOrganization ? userId : null;
+
         const sql = `INSERT INTO san_pham
             (ten_san_pham, anh, mo_ta, gia, tinh_trang, trang_thai,
-             so_luong, ma_thanh_vien, ma_danh_muc, so_phan_tram_quyen_gop, ma_hoat_dong)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+             so_luong, ma_thanh_vien, ma_to_chuc, ma_danh_muc, so_phan_tram_quyen_gop, ma_hoat_dong)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         await promiseDb.execute(sql, [
             ten_san_pham, anh, mo_ta || null, finalGia, tinh_trang || 'Như mới', PRODUCT_STATUS.PENDING,
-            finalSoLuong, ma_thanh_vien, finalMaDanhMuc, finalPhanTram, finalMaHoatDong
+            finalSoLuong, ownerMemberId, ownerOrganizationId, finalMaDanhMuc, finalPhanTram, finalMaHoatDong
         ]);
 
         res.status(201).json({
@@ -372,6 +427,7 @@ exports.getPurchaseDetail = async (req, res) => {
 
     try {
         await ensureProductImageColumn();
+        await ensureProductOrganizationColumn();
 
         const [products] = await promiseDb.query(
             `SELECT
@@ -386,6 +442,7 @@ exports.getPurchaseDetail = async (req, res) => {
                 sp.ngay_dang,
                 sp.ma_danh_muc,
                 sp.ma_hoat_dong,
+                sp.ma_to_chuc AS ma_to_chuc_dang,
                 sp.so_phan_tram_quyen_gop,
                 dm.ten_danh_muc,
                 seller.ma_thanh_vien AS ma_nguoi_ban,
@@ -423,7 +480,7 @@ exports.getPurchaseDetail = async (req, res) => {
             return res.status(409).json({ error: "Sản phẩm này đã hết hàng." });
         }
 
-        if (Number(product.ma_nguoi_ban) === Number(buyerId)) {
+        if (product.ma_nguoi_ban && Number(product.ma_nguoi_ban) === Number(buyerId)) {
             return res.status(403).json({ error: "Bạn không thể mua sản phẩm của chính mình." });
         }
 
@@ -441,7 +498,7 @@ exports.getPurchaseDetail = async (req, res) => {
             return res.status(409).json({ error: "Sự kiện này chưa có QR nhận chuyển khoản." });
         }
 
-        if (!String(product.ma_ngan_hang || "").trim()) {
+        if (!isDonationProduct && !String(product.ma_ngan_hang || "").trim()) {
             return res.status(409).json({ error: "Người bán chưa cập nhật QR nhận tiền." });
         }
 
@@ -490,6 +547,7 @@ exports.createPurchase = async (req, res) => {
 
     try {
         await ensurePaymentQuantityColumn();
+        await ensureProductOrganizationColumn();
         await promiseDb.beginTransaction();
 
         const [products] = await promiseDb.query(
@@ -500,6 +558,7 @@ exports.createPurchase = async (req, res) => {
                 sp.trang_thai,
                 sp.so_luong,
                 sp.ma_thanh_vien,
+                sp.ma_to_chuc AS ma_to_chuc_dang,
                 sp.ma_hoat_dong,
                 sp.so_phan_tram_quyen_gop,
                 seller.ma_ngan_hang,
@@ -527,14 +586,9 @@ exports.createPurchase = async (req, res) => {
             return res.status(409).json({ error: "Sản phẩm này hiện không còn khả dụng để mua." });
         }
 
-        if (Number(product.ma_thanh_vien) === Number(buyerId)) {
+        if (product.ma_thanh_vien && Number(product.ma_thanh_vien) === Number(buyerId)) {
             await promiseDb.rollback();
             return res.status(403).json({ error: "Bạn không thể mua sản phẩm của chính mình." });
-        }
-
-        if (!String(product.ma_ngan_hang || "").trim()) {
-            await promiseDb.rollback();
-            return res.status(409).json({ error: "Người bán chưa cập nhật QR nhận tiền." });
         }
 
         const donationPercent = Number(product.so_phan_tram_quyen_gop || 0);
@@ -543,6 +597,11 @@ exports.createPurchase = async (req, res) => {
             product.hinh_thuc_quyen_gop === DONATION_PRODUCT_TYPE &&
             donationPercent >= 40
         );
+
+        if (!isDonationProduct && !String(product.ma_ngan_hang || "").trim()) {
+            await promiseDb.rollback();
+            return res.status(409).json({ error: "Người bán chưa cập nhật QR nhận tiền." });
+        }
 
         if (isDonationProduct && product.trang_thai_hoat_dong !== PRODUCT_STATUS.APPROVED) {
             await promiseDb.rollback();
@@ -586,7 +645,7 @@ exports.createPurchase = async (req, res) => {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 buyerId,
-                product.ma_thanh_vien,
+                product.ma_thanh_vien || null,
                 isDonationProduct ? product.ma_to_chuc : null,
                 product.ma_san_pham,
                 totalAmount,
@@ -758,11 +817,211 @@ exports.rejectPurchase = async (req, res) => {
     }
 };
 
+exports.getMemberPaymentSummary = async (req, res) => {
+    const memberId = req.user?.id;
+    const accountType = req.user?.accountType || req.user?.role;
+
+    if (accountType !== 'thanh_vien') {
+        return res.status(403).json({ error: "Chỉ thành viên mới có thể xem thanh toán cá nhân." });
+    }
+
+    try {
+        await ensurePaymentQuantityColumn();
+
+        const [systemFees] = await promiseDb.query(
+            `SELECT
+                tt.ma_thanh_toan,
+                tt.ma_san_pham,
+                tt.so_tien_giao_dich,
+                tt.so_luong,
+                ROUND(tt.so_tien_giao_dich * ?) AS phi_he_thong,
+                tt.ngay_gui,
+                tt.ngay_nop_phi_he_thong,
+                tt.anh_bien_lai_phi_he_thong,
+                sp.ten_san_pham,
+                sp.gia
+             FROM thanh_toan tt
+             INNER JOIN san_pham sp ON sp.ma_san_pham = tt.ma_san_pham
+             LEFT JOIN hoat_dong_quyen_gop hd ON hd.ma_hoat_dong = sp.ma_hoat_dong
+             WHERE tt.ma_thanh_vien_nhan = ?
+                AND tt.trang_thai IN (?, ?, ?)
+                AND COALESCE(tt.so_tien_giao_dich, 0) > 0
+                AND (tt.anh_bien_lai_phi_he_thong IS NULL OR tt.anh_bien_lai_phi_he_thong = '')
+                AND NOT (
+                    sp.ma_hoat_dong IS NOT NULL
+                    AND hd.hinh_thuc_quyen_gop = ?
+                    AND COALESCE(sp.so_phan_tram_quyen_gop, 0) >= 40
+                )
+             ORDER BY tt.ngay_gui DESC, tt.ma_thanh_toan DESC`,
+            [SYSTEM_FEE_RATE, memberId, PAYMENT_STATUS.COMPLETED, 'da_ban', 'da_thanh_toan', DONATION_PRODUCT_TYPE]
+        );
+
+        const [organizationDebts] = await promiseDb.query(
+            `SELECT
+                tt.ma_thanh_toan,
+                tt.ma_san_pham,
+                tt.so_tien_giao_dich,
+                tt.so_luong,
+                tt.so_tien_quyen_gop,
+                tt.so_tien_tra_nguoi_ban,
+                tt.trang_thai,
+                tt.trang_thai_chi_tra_nguoi_ban,
+                tt.ngay_gui,
+                tt.ngay_xac_nhan_to_chuc,
+                sp.ten_san_pham,
+                sp.gia,
+                sp.so_phan_tram_quyen_gop,
+                hd.ma_hoat_dong,
+                hd.ten_hoat_dong,
+                hd.han_ket_thuc,
+                org.ten_to_chuc
+             FROM thanh_toan tt
+             INNER JOIN san_pham sp ON sp.ma_san_pham = tt.ma_san_pham
+             INNER JOIN hoat_dong_quyen_gop hd ON hd.ma_hoat_dong = sp.ma_hoat_dong
+             LEFT JOIN to_chuc org ON org.ma_to_chuc = hd.ma_to_chuc
+             WHERE tt.ma_thanh_vien_nhan = ?
+                AND hd.hinh_thuc_quyen_gop = ?
+                AND COALESCE(tt.so_tien_tra_nguoi_ban, 0) > 0
+                AND tt.trang_thai_chi_tra_nguoi_ban = ?
+                AND tt.trang_thai IN (?, ?)
+             ORDER BY hd.han_ket_thuc ASC, tt.ngay_gui DESC, tt.ma_thanh_toan DESC`,
+            [
+                memberId,
+                DONATION_PRODUCT_TYPE,
+                SELLER_PAYOUT_STATUS.PENDING,
+                PAYMENT_STATUS.PENDING_ORGANIZATION,
+                PAYMENT_STATUS.COMPLETED
+            ]
+        );
+
+        res.json({
+            systemFees,
+            organizationDebts,
+            systemFeeRate: SYSTEM_FEE_RATE,
+            systemFeeDueDay: 30
+        });
+    } catch (err) {
+        res.status(500).json({ error: "Không thể lấy dữ liệu thanh toán thành viên: " + err.message });
+    }
+};
+
+exports.submitSystemFeeReceipt = async (req, res) => {
+    const memberId = req.user?.id;
+    const accountType = req.user?.accountType || req.user?.role;
+    const rawPaymentIds = req.body?.payment_ids || req.body?.paymentIds || "[]";
+
+    if (accountType !== 'thanh_vien') {
+        return res.status(403).json({ error: "Chỉ thành viên mới có thể nộp biên lai phí hệ thống." });
+    }
+
+    if (!req.file) {
+        return res.status(400).json({ error: "Vui lòng tải lên biên lai thanh toán." });
+    }
+
+    if (!String(req.file.mimetype || "").startsWith("image/")) {
+        return res.status(400).json({ error: "Vui lòng tải lên đúng file ảnh biên lai." });
+    }
+
+    let paymentIds = [];
+    try {
+        paymentIds = Array.isArray(rawPaymentIds)
+            ? rawPaymentIds
+            : JSON.parse(rawPaymentIds);
+    } catch {
+        paymentIds = [];
+    }
+
+    paymentIds = [...new Set(
+        paymentIds
+            .map((id) => Number(id))
+            .filter((id) => Number.isInteger(id) && id > 0)
+    )];
+
+    if (paymentIds.length === 0) {
+        return res.status(400).json({ error: "Không có khoản phí hệ thống nào để nộp biên lai." });
+    }
+
+    const receiptPath = `/uploads/${req.file.filename}`;
+
+    try {
+        await ensurePaymentQuantityColumn();
+        await promiseDb.beginTransaction();
+
+        const placeholders = paymentIds.map(() => "?").join(",");
+        const [payments] = await promiseDb.query(
+            `SELECT
+                tt.ma_thanh_toan,
+                tt.so_tien_giao_dich
+             FROM thanh_toan tt
+             INNER JOIN san_pham sp ON sp.ma_san_pham = tt.ma_san_pham
+             LEFT JOIN hoat_dong_quyen_gop hd ON hd.ma_hoat_dong = sp.ma_hoat_dong
+             WHERE tt.ma_thanh_toan IN (${placeholders})
+                AND tt.ma_thanh_vien_nhan = ?
+                AND tt.trang_thai IN (?, ?, ?)
+                AND COALESCE(tt.so_tien_giao_dich, 0) > 0
+                AND (tt.anh_bien_lai_phi_he_thong IS NULL OR tt.anh_bien_lai_phi_he_thong = '')
+                AND NOT (
+                    sp.ma_hoat_dong IS NOT NULL
+                    AND hd.hinh_thuc_quyen_gop = ?
+                    AND COALESCE(sp.so_phan_tram_quyen_gop, 0) >= 40
+                )
+             FOR UPDATE`,
+            [
+                ...paymentIds,
+                memberId,
+                PAYMENT_STATUS.COMPLETED,
+                'da_ban',
+                'da_thanh_toan',
+                DONATION_PRODUCT_TYPE
+            ]
+        );
+
+        if (payments.length === 0) {
+            await promiseDb.rollback();
+            return res.status(404).json({ error: "Không tìm thấy khoản phí hệ thống hợp lệ." });
+        }
+
+        const validPaymentIds = payments.map((payment) => payment.ma_thanh_toan);
+        const updatePlaceholders = validPaymentIds.map(() => "?").join(",");
+
+        await promiseDb.query(
+            `UPDATE thanh_toan
+             SET phi_he_thong = ROUND(so_tien_giao_dich * ?),
+                 anh_bien_lai_phi_he_thong = ?,
+                 ngay_nop_phi_he_thong = NOW()
+             WHERE ma_thanh_toan IN (${updatePlaceholders})`,
+            [SYSTEM_FEE_RATE, receiptPath, ...validPaymentIds]
+        );
+
+        await promiseDb.commit();
+
+        const totalFee = payments.reduce(
+            (total, payment) => total + Math.round(Number(payment.so_tien_giao_dich || 0) * SYSTEM_FEE_RATE),
+            0
+        );
+
+        res.json({
+            message: "Đã ghi nhận biên lai phí hệ thống.",
+            so_khoan_da_nop: payments.length,
+            tong_phi_he_thong: totalFee,
+            anh_bien_lai_phi_he_thong: receiptPath
+        });
+    } catch (err) {
+        try {
+            await promiseDb.rollback();
+        } catch (rollbackErr) {
+            console.error("Không thể rollback nộp phí hệ thống:", rollbackErr);
+        }
+        res.status(500).json({ error: "Không thể nộp biên lai phí hệ thống: " + err.message });
+    }
+};
+
 exports.getOrganizationDonationSales = async (req, res) => {
     const organizationId = req.user?.id;
 
     try {
         await ensurePaymentQuantityColumn();
+        await ensureProductOrganizationColumn();
 
         const [payments] = await promiseDb.query(
             `SELECT
@@ -788,13 +1047,14 @@ exports.getOrganizationDonationSales = async (req, res) => {
                 buyer.lop AS lop_nguoi_mua,
                 buyer.sdt AS sdt_nguoi_mua,
                 buyer.email AS email_nguoi_mua,
-                seller.ho_ten AS ten_nguoi_ban,
-                seller.lop AS lop_nguoi_ban
+                COALESCE(seller.ho_ten, owner_org.ten_to_chuc) AS ten_nguoi_ban,
+                CASE WHEN seller.ma_thanh_vien IS NULL THEN 'Tổ chức' ELSE seller.lop END AS lop_nguoi_ban
              FROM thanh_toan tt
              INNER JOIN san_pham sp ON sp.ma_san_pham = tt.ma_san_pham
              INNER JOIN hoat_dong_quyen_gop hd ON hd.ma_hoat_dong = sp.ma_hoat_dong
              LEFT JOIN thanh_vien buyer ON buyer.ma_thanh_vien = tt.ma_thanh_vien_gui
              LEFT JOIN thanh_vien seller ON seller.ma_thanh_vien = tt.ma_thanh_vien_nhan
+             LEFT JOIN to_chuc owner_org ON owner_org.ma_to_chuc = sp.ma_to_chuc
              WHERE hd.ma_to_chuc = ?
                 AND hd.hinh_thuc_quyen_gop = ?
                 AND tt.trang_thai = ?
@@ -977,6 +1237,8 @@ exports.confirmOrganizationSellerPayout = async (req, res) => {
 
 exports.getPendingProducts = async (req, res) => {
     try {
+        await ensureProductOrganizationColumn();
+
         const [products] = await promiseDb.execute(
             `SELECT
                 sp.ma_san_pham,
@@ -989,11 +1251,12 @@ exports.getPendingProducts = async (req, res) => {
                 sp.so_luong,
                 sp.ngay_dang,
                 sp.so_phan_tram_quyen_gop,
-                tv.ho_ten,
+                COALESCE(tv.ho_ten, org.ten_to_chuc) AS ho_ten,
                 dm.ten_danh_muc,
                 hd.ten_hoat_dong
              FROM san_pham sp
              LEFT JOIN thanh_vien tv ON tv.ma_thanh_vien = sp.ma_thanh_vien
+             LEFT JOIN to_chuc org ON org.ma_to_chuc = sp.ma_to_chuc
              LEFT JOIN danh_muc dm ON dm.ma_danh_muc = sp.ma_danh_muc
              LEFT JOIN hoat_dong_quyen_gop hd ON hd.ma_hoat_dong = sp.ma_hoat_dong
              WHERE sp.trang_thai = ?
