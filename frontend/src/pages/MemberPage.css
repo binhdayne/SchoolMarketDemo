@@ -284,6 +284,151 @@
   opacity: 0.65;
 }
 
+.payment-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.payment-panel {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+}
+
+.payment-panel-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+}
+
+.payment-panel-heading h3 {
+  color: #111827;
+  font-size: 16px;
+  margin: 0 0 5px;
+}
+
+.payment-panel-heading p,
+.payment-due-note,
+.payment-item p {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.payment-panel-icon {
+  align-items: center;
+  background: #ecfdf5;
+  border-radius: 10px;
+  color: #047857;
+  display: inline-flex;
+  height: 38px;
+  justify-content: center;
+  min-width: 38px;
+}
+
+.payment-panel-icon.organization {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.payment-total-row {
+  align-items: center;
+  background: #f8fafc;
+  border-radius: 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 14px;
+}
+
+.payment-total-row span {
+  color: #475569;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.payment-total-row strong {
+  color: #047857;
+  font-size: 20px;
+}
+
+.payment-total-row.organization strong {
+  color: #2563eb;
+}
+
+.payment-list {
+  display: grid;
+  gap: 10px;
+}
+
+.payment-item {
+  border: 1px solid #f1f5f9;
+  border-radius: 10px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.payment-item h4 {
+  color: #111827;
+  font-size: 14px;
+  margin: 0 0 6px;
+}
+
+.payment-item > span {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.payment-empty {
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  color: #64748b;
+  font-size: 14px;
+  margin: 0;
+  padding: 20px;
+  text-align: center;
+}
+
+.system-fee-form {
+  border-top: 1px solid #e5e7eb;
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+}
+
+.system-fee-upload {
+  display: grid;
+  gap: 7px;
+}
+
+.system-fee-upload span {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.system-fee-upload input {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 9px;
+}
+
+.selected-receipt {
+  color: #047857;
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0;
+}
+
 @media (max-width: 760px) {
   .stats-row,
   .product-main-row,
@@ -293,6 +438,10 @@
   }
 
   .buyer-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-grid {
     grid-template-columns: 1fr;
   }
 

@@ -20,6 +20,15 @@ const initialEventForm = {
   chi_tiet_do_vat: "",
 };
 
+const initialOrganizationProductForm = {
+  ten_san_pham: "",
+  mo_ta: "",
+  gia: "",
+  ma_danh_muc: "",
+  tinh_trang: "Như mới",
+  so_luong: 1,
+};
+
 const donationTypeOptions = [
   { value: "nhan_tien_chuyen_khoan", label: "Nhận tiền chuyển khoản" },
   { value: "ban_do_quyen_gop", label: "Bán đồ quyên góp" },
@@ -43,6 +52,13 @@ function OrganizationPage({
   const [creatingEvent, setCreatingEvent] = useState(false);
   const [eventMessage, setEventMessage] = useState("");
   const [eventError, setEventError] = useState("");
+  const [categories, setCategories] = useState([]);
+  const [eventProductForm, setEventProductForm] = useState(initialOrganizationProductForm);
+  const [eventProductFile, setEventProductFile] = useState(null);
+  const [productEventTarget, setProductEventTarget] = useState(null);
+  const [productSubmitting, setProductSubmitting] = useState(false);
+  const [productMessage, setProductMessage] = useState("");
+  const [productError, setProductError] = useState("");
   const [approvedEvents, setApprovedEvents] = useState([]);
   const [loadingApprovedEvents, setLoadingApprovedEvents] = useState(false);
   const [approvedEventsMessage, setApprovedEventsMessage] = useState("");
@@ -64,6 +80,15 @@ function OrganizationPage({
   const [sellerPayoutMessage, setSellerPayoutMessage] = useState("");
   const [sellerPayoutError, setSellerPayoutError] = useState("");
   const [confirmingSellerPayoutId, setConfirmingSellerPayoutId] = useState(null);
+
+  const loadCategories = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/products/categories`);
+      setCategories(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setCategories([]);
+    }
+  }, []);
 
   const loadApprovedEvents = useCallback(async () => {
     if (!token) return;
@@ -143,11 +168,12 @@ function OrganizationPage({
   }, [user]);
 
   useEffect(() => {
+    loadCategories();
     loadApprovedEvents();
     loadPendingContributions();
     loadDonationSales();
     loadSellerPayouts();
-  }, [loadApprovedEvents, loadPendingContributions, loadDonationSales, loadSellerPayouts]);
+  }, [loadCategories, loadApprovedEvents, loadPendingContributions, loadDonationSales, loadSellerPayouts]);
 
   const handleChange = (event) => {
     setForm((currentForm) => ({ ...currentForm, [event.target.name]: event.target.value }));
@@ -240,8 +266,38 @@ function OrganizationPage({
     }
   };
 
+  const resetEventProductForm = () => {
+    setEventProductForm(initialOrganizationProductForm);
+    setEventProductFile(null);
+  };
+
+  const handleEventProductChange = (event) => {
+    const { name, value } = event.target;
+    setEventProductForm((currentForm) => ({ ...currentForm, [name]: value }));
+    setProductMessage("");
+    setProductError("");
+    setEventError("");
+  };
+
+  const handleEventProductFileChange = (event) => {
+    const file = event.target.files?.[0] || null;
+
+    if (file && !file.type.startsWith("image/")) {
+      setProductError("Vui lòng chọn đúng file ảnh sản phẩm.");
+      setEventError("Vui lòng chọn đúng file ảnh sản phẩm.");
+      event.target.value = "";
+      return;
+    }
+
+    setEventProductFile(file);
+    setProductMessage("");
+    setProductError("");
+    setEventError("");
+  };
+
   const handleCloseEventCreator = () => {
     setEventForm(initialEventForm);
+    resetEventProductForm();
     setEventMessage("");
     setEventError("");
     onCloseEventCreator?.();
@@ -276,6 +332,19 @@ function OrganizationPage({
       return;
     }
 
+    const shouldCreateProduct =
+      eventForm.hinh_thuc_quyen_gop === "ban_do_quyen_gop" &&
+      hasOrganizationProductDraft(eventProductForm, eventProductFile);
+
+    if (shouldCreateProduct) {
+      const productValidationError = getOrganizationProductValidationError(eventProductForm);
+
+      if (productValidationError) {
+        setEventError(productValidationError);
+        return;
+      }
+    }
+
     setCreatingEvent(true);
     setEventMessage("");
     setEventError("");
@@ -285,8 +354,29 @@ function OrganizationPage({
         headers: { Authorization: `Bearer ${token}` },
       });
 
+      let productNotice = "";
+      const campaignId = res.data?.campaign?.ma_hoat_dong;
+
+      if (shouldCreateProduct && campaignId) {
+        const productFormData = buildOrganizationProductFormData(
+          eventProductForm,
+          eventProductFile,
+          campaignId
+        );
+
+        try {
+          const productRes = await axios.post(`${API}/products/create`, productFormData, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          productNotice = ` ${productRes.data?.message || "Đã gửi sản phẩm cho admin duyệt."}`;
+        } catch (productErr) {
+          setEventError(productErr.response?.data?.error || "Đã tạo sự kiện nhưng chưa thêm được sản phẩm.");
+        }
+      }
+
       setEventForm(initialEventForm);
-      setEventMessage(res.data.message || "Đã tạo sự kiện quyên góp.");
+      resetEventProductForm();
+      setEventMessage(`${res.data.message || "Đã tạo sự kiện quyên góp."}${productNotice}`);
       loadPendingContributions();
     } catch (err) {
       setEventError(err.response?.data?.message || "Không thể tạo sự kiện quyên góp.");
@@ -319,6 +409,56 @@ function OrganizationPage({
       setApprovedEventsError(err.response?.data?.message || "Không thể xóa sự kiện.");
     } finally {
       setDeletingEventId(null);
+    }
+  };
+
+  const handleOpenEventProductCreator = (event) => {
+    setProductEventTarget(event);
+    resetEventProductForm();
+    setProductMessage("");
+    setProductError("");
+    setApprovedEventsMessage("");
+    setApprovedEventsError("");
+  };
+
+  const handleCloseEventProductCreator = () => {
+    setProductEventTarget(null);
+    resetEventProductForm();
+    setProductMessage("");
+    setProductError("");
+  };
+
+  const handleSubmitEventProduct = async (event) => {
+    event.preventDefault();
+
+    if (!productEventTarget) return;
+
+    const productValidationError = getOrganizationProductValidationError(eventProductForm);
+    if (productValidationError) {
+      setProductError(productValidationError);
+      return;
+    }
+
+    setProductSubmitting(true);
+    setProductMessage("");
+    setProductError("");
+
+    try {
+      const formData = buildOrganizationProductFormData(
+        eventProductForm,
+        eventProductFile,
+        productEventTarget.ma_hoat_dong
+      );
+      const res = await axios.post(`${API}/products/create`, formData, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      setApprovedEventsMessage(res.data.message || "Đã gửi sản phẩm 100% quyên góp cho admin duyệt.");
+      handleCloseEventProductCreator();
+    } catch (err) {
+      setProductError(err.response?.data?.error || "Không thể thêm sản phẩm cho sự kiện.");
+    } finally {
+      setProductSubmitting(false);
     }
   };
 
@@ -430,9 +570,14 @@ function OrganizationPage({
           creating={creatingEvent}
           message={eventMessage}
           error={eventError}
+          categories={categories}
+          productForm={eventProductForm}
+          productFile={eventProductFile}
           onChange={handleEventChange}
           onImageChange={handleEventImageFileChange}
           onQrImageChange={handleEventQrFileChange}
+          onProductChange={handleEventProductChange}
+          onProductFileChange={handleEventProductFileChange}
           onClose={handleCloseEventCreator}
           onSubmit={handleCreateEvent}
         />
@@ -470,6 +615,7 @@ function OrganizationPage({
             onSelectEvent={setSelectedEvent}
             deletingEventId={deletingEventId}
             onDeleteEvent={handleDeleteEvent}
+            onAddProduct={handleOpenEventProductCreator}
           />
 
           <OrganizationContributionRequests
@@ -504,11 +650,36 @@ function OrganizationPage({
       {selectedEvent && (
         <EventDetailDialog event={selectedEvent} onClose={() => setSelectedEvent(null)} />
       )}
+
+      {productEventTarget && (
+        <OrganizationProductDialog
+          event={productEventTarget}
+          form={eventProductForm}
+          file={eventProductFile}
+          categories={categories}
+          submitting={productSubmitting}
+          message={productMessage}
+          error={productError}
+          onChange={handleEventProductChange}
+          onFileChange={handleEventProductFileChange}
+          onClose={handleCloseEventProductCreator}
+          onSubmit={handleSubmitEventProduct}
+        />
+      )}
     </main>
   );
 }
 
-function OrganizationEventsSection({ events, loading, message, error, deletingEventId, onSelectEvent, onDeleteEvent }) {
+function OrganizationEventsSection({
+  events,
+  loading,
+  message,
+  error,
+  deletingEventId,
+  onSelectEvent,
+  onDeleteEvent,
+  onAddProduct,
+}) {
   return (
     <section style={styles.eventsSection} aria-label="Sự kiện của tổ chức">
       <div style={styles.sectionHeader}>
@@ -545,6 +716,15 @@ function OrganizationEventsSection({ events, loading, message, error, deletingEv
                     </div>
                   </button>
                   <div style={styles.eventCardActions}>
+                    {event.hinh_thuc_quyen_gop === "ban_do_quyen_gop" && (
+                      <button
+                        type="button"
+                        onClick={() => onAddProduct(event)}
+                        style={styles.addProductButton}
+                      >
+                        Thêm sản phẩm 100%
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => onDeleteEvent(event)}
@@ -819,9 +999,14 @@ function DonationEventCreator({
   creating,
   message,
   error,
+  categories,
+  productForm,
+  productFile,
   onChange,
   onImageChange,
   onQrImageChange,
+  onProductChange,
+  onProductFileChange,
   onClose,
   onSubmit,
 }) {
@@ -969,6 +1154,17 @@ function DonationEventCreator({
           </div>
         </div>
 
+        {form.hinh_thuc_quyen_gop === "ban_do_quyen_gop" && (
+          <OrganizationProductForm
+            title="Sản phẩm bán 100% quyên góp"
+            form={productForm}
+            file={productFile}
+            categories={categories}
+            onChange={onProductChange}
+            onFileChange={onProductFileChange}
+          />
+        )}
+
         {message && <p style={styles.successMessage}>{message}</p>}
         {error && <p style={styles.errorMessage}>{error}</p>}
 
@@ -981,6 +1177,146 @@ function DonationEventCreator({
           </button>
         </div>
       </form>
+    </section>
+  );
+}
+
+function OrganizationProductDialog({
+  event,
+  form,
+  file,
+  categories,
+  submitting,
+  message,
+  error,
+  onChange,
+  onFileChange,
+  onClose,
+  onSubmit,
+}) {
+  return (
+    <div style={styles.detailOverlay} role="presentation">
+      <form style={styles.detailDialog} onSubmit={onSubmit} role="dialog" aria-modal="true">
+        <div style={styles.detailHeader}>
+          <div>
+            <h2 style={styles.detailTitle}>Thêm sản phẩm 100%</h2>
+            <p style={styles.eventCardText}>{event.ten_hoat_dong}</p>
+          </div>
+          <button type="button" onClick={onClose} style={styles.secondaryButton} disabled={submitting}>
+            Đóng
+          </button>
+        </div>
+
+        <OrganizationProductForm
+          form={form}
+          file={file}
+          categories={categories}
+          onChange={onChange}
+          onFileChange={onFileChange}
+        />
+
+        {message && <p style={styles.successMessage}>{message}</p>}
+        {error && <p style={styles.errorMessage}>{error}</p>}
+
+        <div style={styles.managerActions}>
+          <button type="button" onClick={onClose} style={styles.secondaryButton} disabled={submitting}>
+            Hủy
+          </button>
+          <button type="submit" style={styles.saveButton} disabled={submitting}>
+            {submitting ? "Đang gửi..." : "Gửi admin duyệt"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function OrganizationProductForm({
+  title,
+  form,
+  file,
+  categories,
+  onChange,
+  onFileChange,
+}) {
+  return (
+    <section style={styles.productFormPanel}>
+      {title && <h3 style={styles.productFormTitle}>{title}</h3>}
+
+      <label style={styles.field}>
+        <span style={styles.fieldLabel}>Ảnh sản phẩm</span>
+        <input type="file" accept="image/*" onChange={onFileChange} style={styles.fileInput} />
+        <span style={styles.fileHint}>
+          {file ? file.name : "Chọn ảnh sản phẩm từ máy tính."}
+        </span>
+      </label>
+
+      <div style={styles.productFormGrid}>
+        <EditableField
+          label="Tên sản phẩm"
+          name="ten_san_pham"
+          value={form.ten_san_pham}
+          onChange={onChange}
+          placeholder="Nhập tên sản phẩm"
+        />
+
+        <label style={styles.field}>
+          <span style={styles.fieldLabel}>Danh mục</span>
+          <select
+            name="ma_danh_muc"
+            value={form.ma_danh_muc}
+            onChange={onChange}
+            style={styles.input}
+          >
+            <option value="">-- Chọn danh mục --</option>
+            {categories.map((category) => (
+              <option key={category.ma_danh_muc} value={category.ma_danh_muc}>
+                {category.ten_danh_muc}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label style={styles.field}>
+          <span style={styles.fieldLabel}>Tình trạng</span>
+          <select
+            name="tinh_trang"
+            value={form.tinh_trang}
+            onChange={onChange}
+            style={styles.input}
+          >
+            <option value="Như mới">Như mới</option>
+            <option value="Đã qua sử dụng">Đã qua sử dụng</option>
+          </select>
+        </label>
+
+        <EditableField
+          label="Giá bán (đ)"
+          name="gia"
+          type="number"
+          value={form.gia}
+          onChange={onChange}
+          placeholder="Nhập giá bán"
+        />
+
+        <EditableField
+          label="Số lượng"
+          name="so_luong"
+          type="number"
+          value={form.so_luong}
+          onChange={onChange}
+          placeholder="Nhập số lượng"
+        />
+      </div>
+
+      <EditableField
+        label="Mô tả chi tiết"
+        name="mo_ta"
+        value={form.mo_ta}
+        onChange={onChange}
+        placeholder="Nhập mô tả sản phẩm"
+        multiline
+      />
     </section>
   );
 }
@@ -1141,6 +1477,41 @@ function ReadOnlyField({ label, value }) {
       <input value={value || "-"} readOnly style={{ ...styles.input, ...styles.readOnlyInput }} />
     </label>
   );
+}
+
+function hasOrganizationProductDraft(form, file) {
+  return Boolean(
+    file ||
+      form.ten_san_pham.trim() ||
+      form.mo_ta.trim() ||
+      form.gia ||
+      form.ma_danh_muc ||
+      Number(form.so_luong || 0) !== 1
+  );
+}
+
+function getOrganizationProductValidationError(form) {
+  if (!form.ten_san_pham.trim()) return "Vui lòng nhập tên sản phẩm.";
+  if (!form.ma_danh_muc) return "Vui lòng chọn danh mục.";
+  if (Number(form.gia || 0) <= 0) return "Vui lòng nhập giá bán hợp lệ.";
+  if (Number(form.so_luong || 0) < 1) return "Số lượng phải lớn hơn 0.";
+  return "";
+}
+
+function buildOrganizationProductFormData(form, file, campaignId) {
+  const formData = new FormData();
+
+  if (file) {
+    formData.append("anh", file);
+  }
+
+  Object.entries(form).forEach(([key, value]) => {
+    formData.append(key, value ?? "");
+  });
+  formData.append("ma_hoat_dong", String(campaignId));
+  formData.append("so_phan_tram_quyen_gop", "100");
+
+  return formData;
 }
 
 function formatDate(value) {
@@ -1340,8 +1711,18 @@ const styles = {
   eventCardActions: {
     borderTop: "1px solid #f3f4f6",
     display: "flex",
+    gap: 8,
     justifyContent: "flex-end",
     padding: 12,
+  },
+  addProductButton: {
+    backgroundColor: "#047857",
+    border: "none",
+    borderRadius: 6,
+    color: "#fff",
+    cursor: "pointer",
+    fontWeight: 700,
+    padding: "9px 12px",
   },
   contributionCards: {
     display: "grid",
@@ -1418,6 +1799,24 @@ const styles = {
     cursor: "pointer",
     fontWeight: 700,
     padding: "9px 12px",
+  },
+  productFormPanel: {
+    backgroundColor: "#f9fafb",
+    border: "1px solid #e5e7eb",
+    borderRadius: 8,
+    display: "grid",
+    gap: 14,
+    padding: 16,
+  },
+  productFormTitle: {
+    color: "#111827",
+    fontSize: 18,
+    margin: 0,
+  },
+  productFormGrid: {
+    display: "grid",
+    gap: 14,
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
   },
   emptyText: {
     color: "#4b5563",
