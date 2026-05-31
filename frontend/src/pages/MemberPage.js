@@ -9,6 +9,7 @@ import {
   LuHeart,
   LuPackage,
   LuPackage2,
+  LuPencil,
   LuPlus,
   LuReceiptText,
   LuTrash2,
@@ -45,6 +46,10 @@ function getSystemFeeAmount(payment) {
   const storedFee = Number(payment.phi_he_thong || 0);
   if (storedFee > 0) return storedFee;
   return Math.round(Number(payment.so_tien_giao_dich || 0) * 0.05);
+}
+
+function canEditPersonalProduct(product, hasBuyer) {
+  return !hasBuyer && !product.ma_hoat_dong && product.trang_thai !== 'dang_giao_dich';
 }
 
 function MemberPaymentTab({
@@ -162,11 +167,25 @@ export default function MemberPage({ user, token, navigate }) {
   const [myProducts, setMyProducts] = useState([]);
   const [memberProfile, setMemberProfile] = useState(user || {});
   const [paymentSummary, setPaymentSummary] = useState({ systemFees: [], organizationDebts: [] });
+  const [categories, setCategories] = useState([]);
   const [loadingPayments, setLoadingPayments] = useState(false);
   const [systemFeeReceipt, setSystemFeeReceipt] = useState(null);
   const [submittingSystemFee, setSubmittingSystemFee] = useState(false);
   const [notice, setNotice] = useState('');
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, productId: null });
+  const [editModal, setEditModal] = useState({ isOpen: false, product: null });
+  const [editForm, setEditForm] = useState({
+    ten_san_pham: '',
+    gia: '',
+    mo_ta: '',
+    ma_danh_muc: '',
+    tinh_trang: '',
+    so_luong: 1,
+    anh: '',
+  });
+  const [editFile, setEditFile] = useState(null);
+  const [editPreviewUrl, setEditPreviewUrl] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
   const [processingPaymentId, setProcessingPaymentId] = useState(null);
 
   const loadMemberData = useCallback(async () => {
@@ -209,6 +228,24 @@ export default function MemberPage({ user, token, navigate }) {
     loadMemberData();
   }, [loadMemberData]);
 
+  useEffect(() => {
+    axios.get(`${API}/products/categories`)
+      .then((res) => setCategories(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setNotice('Không thể tải danh mục sản phẩm.'));
+  }, []);
+
+  useEffect(() => {
+    if (!editFile) {
+      setEditPreviewUrl('');
+      return undefined;
+    }
+
+    const nextPreviewUrl = URL.createObjectURL(editFile);
+    setEditPreviewUrl(nextPreviewUrl);
+
+    return () => URL.revokeObjectURL(nextPreviewUrl);
+  }, [editFile]);
+
   const formatPrice = (price) => {
     if (!price || Number(price) === 0) return 'Miễn phí';
     return `${new Intl.NumberFormat('vi-VN').format(price)}đ`;
@@ -229,6 +266,101 @@ export default function MemberPage({ user, token, navigate }) {
 
   const openDeleteModal = (productId) => {
     setDeleteModal({ isOpen: true, productId });
+  };
+
+  const openEditModal = (product) => {
+    setEditModal({ isOpen: true, product });
+    setEditForm({
+      ten_san_pham: product.ten_san_pham || '',
+      gia: product.gia ?? '',
+      mo_ta: product.mo_ta || '',
+      ma_danh_muc: product.ma_danh_muc || '',
+      tinh_trang: product.tinh_trang || '',
+      so_luong: product.so_luong || 1,
+      anh: product.anh || '',
+    });
+    setEditFile(null);
+    setEditPreviewUrl('');
+    setNotice('');
+  };
+
+  const closeEditModal = () => {
+    if (savingEdit) return;
+
+    setEditModal({ isOpen: false, product: null });
+    setEditForm({
+      ten_san_pham: '',
+      gia: '',
+      mo_ta: '',
+      ma_danh_muc: '',
+      tinh_trang: '',
+      so_luong: 1,
+      anh: '',
+    });
+    setEditFile(null);
+    setEditPreviewUrl('');
+  };
+
+  const handleEditFormChange = (event) => {
+    const { name, value } = event.target;
+    setEditForm((currentForm) => ({
+      ...currentForm,
+      [name]: value,
+    }));
+  };
+
+  const handleEditFileChange = (event) => {
+    const file = event.target.files?.[0] || null;
+
+    if (file && !file.type.startsWith('image/')) {
+      setNotice('Vui lòng chọn đúng file ảnh sản phẩm.');
+      event.target.value = '';
+      return;
+    }
+
+    setEditFile(file);
+    event.target.value = '';
+  };
+
+  const submitProductEdit = async (event) => {
+    event.preventDefault();
+
+    if (!editModal.product) return;
+
+    if (!editForm.ten_san_pham.trim()) {
+      setNotice('Vui lòng nhập tên sản phẩm.');
+      return;
+    }
+
+    if (!editForm.ma_danh_muc) {
+      setNotice('Vui lòng chọn danh mục.');
+      return;
+    }
+
+    const formData = new FormData();
+    ['ten_san_pham', 'gia', 'mo_ta', 'ma_danh_muc', 'tinh_trang', 'so_luong'].forEach((key) => {
+      formData.append(key, editForm[key]);
+    });
+    if (editFile) {
+      formData.append('anh', editFile);
+    }
+
+    setSavingEdit(true);
+    setNotice('');
+
+    try {
+      const res = await axios.put(`${API}/products/${editModal.product.ma_san_pham}`, formData, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      closeEditModal();
+      setNotice(res.data.message || 'Đã gửi chỉnh sửa sản phẩm cho admin duyệt.');
+      await loadMemberData();
+    } catch (err) {
+      setNotice(err.response?.data?.error || 'Không thể chỉnh sửa sản phẩm.');
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const confirmDelete = async () => {
@@ -398,6 +530,73 @@ export default function MemberPage({ user, token, navigate }) {
           </div>
         )}
 
+        {editModal.isOpen && (
+          <div className="modal-overlay">
+            <form className="modal-content product-edit-modal" onSubmit={submitProductEdit}>
+              <h3>Chỉnh sửa sản phẩm</h3>
+              <label className="edit-product-upload">
+                <span>Ảnh sản phẩm</span>
+                <input type="file" accept="image/*" onChange={handleEditFileChange} />
+                <img
+                  src={editPreviewUrl || getAssetUrl(editForm.anh)}
+                  alt="Xem trước ảnh sản phẩm"
+                  onError={(event) => {
+                    event.currentTarget.src = 'https://via.placeholder.com/160';
+                  }}
+                />
+              </label>
+
+              <label className="edit-field">
+                <span>Tên sản phẩm</span>
+                <input name="ten_san_pham" value={editForm.ten_san_pham} onChange={handleEditFormChange} />
+              </label>
+
+              <div className="edit-grid">
+                <label className="edit-field">
+                  <span>Danh mục</span>
+                  <select name="ma_danh_muc" value={editForm.ma_danh_muc} onChange={handleEditFormChange}>
+                    <option value="">-- Chọn danh mục --</option>
+                    {categories.map((category) => (
+                      <option key={category.ma_danh_muc} value={category.ma_danh_muc}>
+                        {category.ten_danh_muc}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="edit-field">
+                  <span>Tình trạng</span>
+                  <input name="tinh_trang" value={editForm.tinh_trang} onChange={handleEditFormChange} />
+                </label>
+              </div>
+
+              <div className="edit-grid">
+                <label className="edit-field">
+                  <span>Giá bán</span>
+                  <input name="gia" value={editForm.gia} onChange={handleEditFormChange} />
+                </label>
+                <label className="edit-field">
+                  <span>Số lượng</span>
+                  <input name="so_luong" type="number" min="1" value={editForm.so_luong} onChange={handleEditFormChange} />
+                </label>
+              </div>
+
+              <label className="edit-field">
+                <span>Mô tả</span>
+                <textarea name="mo_ta" value={editForm.mo_ta} onChange={handleEditFormChange} />
+              </label>
+
+              <div className="modal-actions">
+                <button type="button" className="modal-btn cancel-btn" onClick={closeEditModal} disabled={savingEdit}>
+                  Hủy
+                </button>
+                <button type="submit" className="modal-btn save-btn" disabled={savingEdit}>
+                  {savingEdit ? 'Đang gửi...' : 'Gửi duyệt'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
         {activeTab === 'Sản phẩm của tôi' ? (
           myProducts.length > 0 ? (
             <div className="product-list">
@@ -428,6 +627,15 @@ export default function MemberPage({ user, token, navigate }) {
                       </div>
 
                       <div className="product-actions-row">
+                        {canEditPersonalProduct(product, hasBuyer) && (
+                          <button
+                            className="action-icon"
+                            onClick={() => openEditModal(product)}
+                            title="Chỉnh sửa sản phẩm"
+                          >
+                            <LuPencil />
+                          </button>
+                        )}
                         {hasBuyer && product.anh_xac_nhan_giao_dich && (
                           <a
                             className="action-icon"

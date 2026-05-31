@@ -227,9 +227,11 @@ exports.getCampaignProducts = async (req, res) => {
                 sp.ngay_dang,
                 sp.ma_danh_muc,
                 sp.ma_hoat_dong,
+                sp.ma_thanh_vien,
                 sp.ma_to_chuc,
                 sp.so_phan_tram_quyen_gop,
                 dm.ten_danh_muc,
+                seller.lop AS lop_nguoi_ban,
                 COALESCE(seller.ho_ten, org.ten_to_chuc) AS ten_nguoi_ban,
                 hd.ten_hoat_dong
              FROM san_pham sp
@@ -249,6 +251,72 @@ exports.getCampaignProducts = async (req, res) => {
         res.json(products);
     } catch (err) {
         res.status(500).json({ error: "Không thể lấy sản phẩm quyên góp của sự kiện: " + err.message });
+    }
+};
+
+exports.getOrganizationCampaignProducts = async (req, res) => {
+    const campaignId = req.params.campaignId;
+    const organizationId = req.user.id;
+
+    try {
+        await ensureProductImageColumn();
+        await ensureProductOrganizationColumn();
+
+        const [campaigns] = await promiseDb.query(
+            `SELECT ma_hoat_dong
+             FROM hoat_dong_quyen_gop
+             WHERE ma_hoat_dong = ?
+                AND ma_to_chuc = ?
+                AND hinh_thuc_quyen_gop = ?
+             LIMIT 1`,
+            [campaignId, organizationId, DONATION_PRODUCT_TYPE]
+        );
+
+        if (campaigns.length === 0) {
+            return res.status(404).json({
+                error: "Không tìm thấy sự kiện bán đồ quyên góp của tổ chức."
+            });
+        }
+
+        const [products] = await promiseDb.query(
+            `SELECT
+                sp.ma_san_pham,
+                sp.ten_san_pham,
+                sp.anh,
+                sp.mo_ta,
+                sp.gia,
+                sp.tinh_trang,
+                sp.trang_thai,
+                sp.so_luong,
+                sp.ngay_dang,
+                sp.ma_danh_muc,
+                sp.ma_hoat_dong,
+                sp.ma_thanh_vien,
+                sp.ma_to_chuc,
+                sp.so_phan_tram_quyen_gop,
+                dm.ten_danh_muc,
+                seller.ho_ten AS ten_thanh_vien_ban,
+                seller.lop AS lop_nguoi_ban,
+                org.ten_to_chuc AS ten_to_chuc_ban,
+                COALESCE(seller.ho_ten, org.ten_to_chuc, 'Người bán') AS ten_nguoi_ban,
+                CASE
+                    WHEN sp.ma_thanh_vien IS NOT NULL THEN 'thanh_vien'
+                    WHEN sp.ma_to_chuc IS NOT NULL THEN 'to_chuc'
+                    ELSE 'khac'
+                END AS loai_nguoi_ban
+             FROM san_pham sp
+             LEFT JOIN danh_muc dm ON dm.ma_danh_muc = sp.ma_danh_muc
+             LEFT JOIN thanh_vien seller ON seller.ma_thanh_vien = sp.ma_thanh_vien
+             LEFT JOIN to_chuc org ON org.ma_to_chuc = sp.ma_to_chuc
+             WHERE sp.ma_hoat_dong = ?
+                AND COALESCE(sp.so_phan_tram_quyen_gop, 0) >= 40
+             ORDER BY sp.ngay_dang DESC, sp.ma_san_pham DESC`,
+            [campaignId]
+        );
+
+        res.json(products);
+    } catch (err) {
+        res.status(500).json({ error: "Không thể lấy sản phẩm quyên góp của tổ chức: " + err.message });
     }
 };
 
@@ -357,6 +425,7 @@ exports.createProduct = async (req, res) => {
             finalPhanTram = 0;
         }
 
+        const finalTinhTrang = String(tinh_trang || "").trim() || null;
         const ownerMemberId = isMember ? userId : null;
         const ownerOrganizationId = isOrganization ? userId : null;
 
@@ -366,7 +435,7 @@ exports.createProduct = async (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         await promiseDb.execute(sql, [
-            ten_san_pham, anh, mo_ta || null, finalGia, tinh_trang || 'Như mới', PRODUCT_STATUS.PENDING,
+            ten_san_pham, anh, mo_ta || null, finalGia, finalTinhTrang, PRODUCT_STATUS.PENDING,
             finalSoLuong, ownerMemberId, ownerOrganizationId, finalMaDanhMuc, finalPhanTram, finalMaHoatDong
         ]);
 
@@ -413,6 +482,121 @@ exports.getMyProducts = async (req, res) => {
         res.json(products);
     } catch (err) {
         res.status(500).json({ error: "Không thể lấy danh sách sản phẩm của bạn: " + err.message });
+    }
+};
+
+exports.updateProduct = async (req, res) => {
+    const productId = req.params.id;
+    const userId = req.user?.id;
+    const accountType = req.user?.accountType || req.user?.role;
+
+    if (accountType !== 'thanh_vien') {
+        return res.status(403).json({ error: "Chỉ thành viên mới có quyền chỉnh sửa sản phẩm cá nhân." });
+    }
+
+    try {
+        await ensureProductImageColumn();
+        await ensureProductOrganizationColumn();
+        await ensureDefaultCategories();
+
+        const {
+            ten_san_pham,
+            mo_ta,
+            gia,
+            ma_danh_muc,
+            tinh_trang,
+            so_luong
+        } = req.body;
+
+        const finalTenSanPham = String(ten_san_pham || "").trim();
+        const finalMaDanhMuc = (ma_danh_muc && ma_danh_muc !== "") ? parseInt(ma_danh_muc, 10) : null;
+        const finalGia = gia ? parseFloat(gia) : 0;
+        const finalSoLuong = so_luong ? parseInt(so_luong, 10) : 1;
+        const finalTinhTrang = String(tinh_trang || "").trim() || null;
+
+        if (!finalTenSanPham) {
+            return res.status(400).json({ error: "Vui lòng nhập tên sản phẩm." });
+        }
+
+        if (!Number.isInteger(finalMaDanhMuc)) {
+            return res.status(400).json({ error: "Vui lòng chọn danh mục." });
+        }
+
+        if (Number.isNaN(finalGia) || finalGia < 0) {
+            return res.status(400).json({ error: "Giá bán không hợp lệ." });
+        }
+
+        if (!Number.isInteger(finalSoLuong) || finalSoLuong < 1) {
+            return res.status(400).json({ error: "Số lượng sản phẩm không hợp lệ." });
+        }
+
+        const [products] = await promiseDb.query(
+            `SELECT ma_san_pham, anh, trang_thai, ma_thanh_vien, ma_hoat_dong
+             FROM san_pham
+             WHERE ma_san_pham = ? AND ma_thanh_vien = ?
+             LIMIT 1`,
+            [productId, userId]
+        );
+
+        if (products.length === 0) {
+            return res.status(404).json({ error: "Không tìm thấy sản phẩm cá nhân của bạn." });
+        }
+
+        const product = products[0];
+
+        if (product.ma_hoat_dong) {
+            return res.status(409).json({ error: "Chức năng này chỉ chỉnh sửa bài đăng sản phẩm cá nhân, không chỉnh sửa sản phẩm thuộc sự kiện." });
+        }
+
+        if (product.trang_thai === PRODUCT_STATUS.IN_TRANSACTION) {
+            return res.status(409).json({ error: "Sản phẩm đang có người mua, vui lòng xử lý giao dịch trước khi chỉnh sửa." });
+        }
+
+        const [pendingPayments] = await promiseDb.query(
+            `SELECT ma_thanh_toan
+             FROM thanh_toan
+             WHERE ma_san_pham = ? AND trang_thai IN (?, ?)
+             LIMIT 1`,
+            [productId, PAYMENT_STATUS.PENDING_SELLER, PAYMENT_STATUS.PENDING_ORGANIZATION]
+        );
+
+        if (pendingPayments.length > 0) {
+            return res.status(409).json({ error: "Sản phẩm đang có giao dịch chờ xác nhận, chưa thể chỉnh sửa." });
+        }
+
+        const anh = req.file ? `/uploads/${req.file.filename}` : (product.anh || null);
+
+        await promiseDb.execute(
+            `UPDATE san_pham
+             SET ten_san_pham = ?,
+                 anh = ?,
+                 mo_ta = ?,
+                 gia = ?,
+                 tinh_trang = ?,
+                 so_luong = ?,
+                 ma_danh_muc = ?,
+                 trang_thai = ?
+             WHERE ma_san_pham = ? AND ma_thanh_vien = ?`,
+            [
+                finalTenSanPham,
+                anh,
+                mo_ta || null,
+                finalGia,
+                finalTinhTrang,
+                finalSoLuong,
+                finalMaDanhMuc,
+                PRODUCT_STATUS.PENDING,
+                productId,
+                userId
+            ]
+        );
+
+        res.json({
+            message: "Đã gửi chỉnh sửa sản phẩm cho admin duyệt.",
+            trang_thai: PRODUCT_STATUS.PENDING
+        });
+    } catch (err) {
+        res.status(500).json({ error: "Không thể chỉnh sửa sản phẩm: " + err.message });
     }
 };
 

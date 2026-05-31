@@ -19,7 +19,7 @@ const initialDonationProductForm = {
   gia: "",
   mo_ta: "",
   ma_danh_muc: "",
-  tinh_trang: "Như mới",
+  tinh_trang: "",
   so_luong: 1,
   so_phan_tram_quyen_gop: 40,
 };
@@ -90,6 +90,61 @@ function DonorList({ donors }) {
   );
 }
 
+function TransferDonorSummary({ donors }) {
+  const donorSummaries = getTransferDonationSummaries(donors);
+  const totalAmount = donorSummaries.reduce((total, donor) => total + donor.totalAmount, 0);
+
+  return (
+    <div className="donor-list-box">
+      <h4>Người đã quyên góp</h4>
+      <div className="donation-total-box">
+        <span>Tổng số tiền hoạt động nhận được</span>
+        <strong>{formatCurrency(totalAmount)}</strong>
+      </div>
+      {donorSummaries.length === 0 ? (
+        <p>Chưa có thành viên nào được xác nhận quyên góp.</p>
+      ) : (
+        <ul className="donor-list">
+          {donorSummaries.map((donor) => (
+            <li key={donor.key}>
+              <span className="donor-info">
+                <strong>{donor.name}</strong>
+                <small>{donor.className}</small>
+              </span>
+              <em>{formatCurrency(donor.totalAmount)}</em>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ProductSellerList({ products }) {
+  const sellers = getDonationProductSellers(products);
+
+  return (
+    <div className="event-sellers-box">
+      <h4>Người từng đăng bán vào hoạt động</h4>
+      {sellers.length === 0 ? (
+        <p>Chưa có người bán nào đăng sản phẩm quyên góp vào hoạt động này.</p>
+      ) : (
+        <ul className="donor-list">
+          {sellers.map((seller) => (
+            <li key={seller.key}>
+              <span className="donor-info">
+                <strong>{seller.name}</strong>
+                <small>{seller.description}</small>
+              </span>
+              <em>{seller.productCount} sản phẩm</em>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function EventProducts({ products, token, accountType, onLoginRequired, onBuyProductClick, onError }) {
   const handleBuy = (product) => {
     if (!token) {
@@ -111,45 +166,95 @@ function EventProducts({ products, token, accountType, onLoginRequired, onBuyPro
       {products.length === 0 ? (
         <p>Chưa có sản phẩm nào được admin duyệt cho sự kiện này.</p>
       ) : (
-        <div className="event-products-grid">
-          {products.map((product) => (
-            <article className="event-product-card" key={product.ma_san_pham}>
-              <img
-                src={getAssetUrl(product.anh)}
-                alt={product.ten_san_pham || "Sản phẩm quyên góp"}
-                onError={(event) => {
-                  event.currentTarget.onerror = null;
-                  event.currentTarget.src = "/images/school-market-icon-v2.png";
-                }}
-              />
-              <div className="event-product-body">
-                <div>
-                  <span className="event-product-category">{product.ten_danh_muc || "Chưa phân loại"}</span>
-                  <h5>{product.ten_san_pham}</h5>
+        <>
+          <div className="event-products-grid">
+            {products.map((product) => (
+              <article className="event-product-card" key={product.ma_san_pham}>
+                <img
+                  src={getAssetUrl(product.anh)}
+                  alt={product.ten_san_pham || "Sản phẩm quyên góp"}
+                  onError={(event) => {
+                    event.currentTarget.onerror = null;
+                    event.currentTarget.src = "/images/school-market-icon-v2.png";
+                  }}
+                />
+                <div className="event-product-body">
+                  <div>
+                    <span className="event-product-category">{product.ten_danh_muc || "Chưa phân loại"}</span>
+                    <h5>{product.ten_san_pham}</h5>
+                  </div>
+                  <strong className="event-product-price">{formatCurrency(product.gia)}</strong>
+                  <div className="event-product-meta">
+                    <span>Tình trạng: {product.tinh_trang || "Chưa cập nhật"}</span>
+                    <span>Số lượng: {product.so_luong || 0}</span>
+                    <span>Người bán: {product.ten_nguoi_ban || "Thành viên"}</span>
+                    <span>Quyên góp: {Number(product.so_phan_tram_quyen_gop || 0)}%</span>
+                  </div>
+                  {product.mo_ta && <p>{product.mo_ta}</p>}
+                  <button
+                    type="button"
+                    className="community-primary-button"
+                    onClick={() => handleBuy(product)}
+                    disabled={Boolean(token) && accountType !== "thanh_vien"}
+                  >
+                    <LuShoppingBag size={16} /> Mua để quyên góp
+                  </button>
                 </div>
-                <strong className="event-product-price">{formatCurrency(product.gia)}</strong>
-                <div className="event-product-meta">
-                  <span>Tình trạng: {product.tinh_trang || "Chưa cập nhật"}</span>
-                  <span>Số lượng: {product.so_luong || 0}</span>
-                  <span>Người bán: {product.ten_nguoi_ban || "Thành viên"}</span>
-                  <span>Quyên góp: {Number(product.so_phan_tram_quyen_gop || 0)}%</span>
-                </div>
-                {product.mo_ta && <p>{product.mo_ta}</p>}
-                <button
-                  type="button"
-                  className="community-primary-button"
-                  onClick={() => handleBuy(product)}
-                  disabled={Boolean(token) && accountType !== "thanh_vien"}
-                >
-                  <LuShoppingBag size={16} /> Mua để quyên góp
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
+              </article>
+            ))}
+          </div>
+          <ProductSellerList products={products} />
+        </>
       )}
     </div>
   );
+}
+
+function getTransferDonationSummaries(donors) {
+  const donorsByMember = new Map();
+
+  donors
+    .filter((donor) => donor.loai_dong_gop === "nhan_tien_chuyen_khoan")
+    .forEach((donor, index) => {
+      const donorKey = [donor.ma_thanh_vien || index, donor.ho_ten || "Thành viên", donor.lop || ""].join("-");
+
+      if (!donorsByMember.has(donorKey)) {
+        donorsByMember.set(donorKey, {
+          key: donorKey,
+          name: donor.ho_ten || "Thành viên",
+          className: donor.lop || "Chưa cập nhật lớp",
+          totalAmount: 0,
+        });
+      }
+
+      donorsByMember.get(donorKey).totalAmount += Number(donor.so_tien || 0);
+    });
+
+  return Array.from(donorsByMember.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+}
+
+function getDonationProductSellers(products) {
+  const sellersByKey = new Map();
+
+  products.forEach((product, index) => {
+    const sellerKey = [
+      product.ma_thanh_vien || product.ma_to_chuc || product.ten_nguoi_ban || index,
+      product.ten_nguoi_ban || "Người bán",
+    ].join("-");
+
+    if (!sellersByKey.has(sellerKey)) {
+      sellersByKey.set(sellerKey, {
+        key: sellerKey,
+        name: product.ten_nguoi_ban || "Người bán",
+        description: product.lop_nguoi_ban || "Chưa cập nhật lớp",
+        productCount: 0,
+      });
+    }
+
+    sellersByKey.get(sellerKey).productCount += 1;
+  });
+
+  return Array.from(sellersByKey.values()).sort((a, b) => b.productCount - a.productCount);
 }
 
 export default function DonationEventsPage({
@@ -163,6 +268,7 @@ export default function DonationEventsPage({
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [detailEvent, setDetailEvent] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const [receiptPreview, setReceiptPreview] = useState("");
@@ -279,6 +385,11 @@ export default function DonationEventsPage({
         currentEvents.map((event) =>
           event.ma_hoat_dong === campaignId ? { ...event, san_pham_quyen_gop: nextProducts } : event
         )
+      );
+      setDetailEvent((currentEvent) =>
+        currentEvent?.ma_hoat_dong === campaignId
+          ? { ...currentEvent, san_pham_quyen_gop: nextProducts }
+          : currentEvent
       );
       setProductFormEvent((currentEvent) =>
         currentEvent?.ma_hoat_dong === campaignId
@@ -466,6 +577,10 @@ export default function DonationEventsPage({
           ? { ...event, nguoi_quyen_gop: [nextDonor, ...(event.nguoi_quyen_gop || [])] }
           : event
       )));
+      setDetailEvent((currentEvent) => currentEvent?.ma_hoat_dong === itemEvent.ma_hoat_dong
+        ? { ...currentEvent, nguoi_quyen_gop: [nextDonor, ...(currentEvent.nguoi_quyen_gop || [])] }
+        : currentEvent
+      );
       setItemMessage(res.data.message || "Đã ghi nhận đồ vật quyên góp.");
       setItemFile(null);
       setItemQuantity(1);
@@ -535,6 +650,72 @@ export default function DonationEventsPage({
     }
   };
 
+  const openEventDetailPage = (event) => {
+    setDetailEvent(event);
+    setError("");
+  };
+
+  const closeEventDetailPage = () => {
+    setDetailEvent(null);
+  };
+
+  const getEventActionState = (event) => {
+    const saleEvent = isDonationSaleEvent(event);
+    const itemDonationEvent = isItemDonationEvent(event);
+    const transferEvent = isTransferEvent(event);
+    const transferReady = canJoinTransferEvent(event);
+    const actionDisabled = transferEvent
+      ? !transferReady || (Boolean(token) && accountType !== "thanh_vien")
+      : saleEvent
+        ? Boolean(token) && accountType !== "thanh_vien"
+        : itemDonationEvent
+          ? Boolean(token) && accountType !== "thanh_vien"
+          : true;
+    const actionLabel = itemDonationEvent
+      ? (token && accountType !== "thanh_vien"
+          ? "Chỉ thành viên"
+          : token
+            ? "Tham gia"
+            : "Đăng nhập để tham gia")
+      : saleEvent
+      ? (token && accountType !== "thanh_vien"
+          ? "Chỉ thành viên"
+          : token
+            ? "Đăng sản phẩm quyên góp"
+            : "Đăng nhập để tham gia")
+      : (!transferEvent
+          ? "Chưa hỗ trợ"
+          : !transferReady
+            ? "Chưa sẵn sàng"
+            : token && accountType !== "thanh_vien"
+              ? "Chỉ thành viên"
+              : token
+                ? "Tham gia"
+                : "Đăng nhập để tham gia");
+
+    return {
+      actionDisabled,
+      actionLabel,
+      itemDonationEvent,
+      saleEvent,
+      transferEvent,
+    };
+  };
+
+  const openEventActionPage = (event) => {
+    if (isDonationSaleEvent(event)) {
+      openDonationProductForm(event);
+      return;
+    }
+
+    if (isItemDonationEvent(event)) {
+      openItemContributionPage(event);
+      return;
+    }
+
+    openContributionPage(event);
+  };
+
   if (itemEvent) {
     return (
       <main className="community-page">
@@ -545,7 +726,7 @@ export default function DonationEventsPage({
             <p className="community-subtitle">{itemEvent.chi_tiet_do_vat || itemEvent.mo_ta || "Chưa có chi tiết đồ vật."}</p>
           </div>
           <button type="button" className="community-secondary-button" onClick={closeItemContributionPage}>
-            <LuArrowLeft size={16} /> Danh sách sự kiện
+            <LuArrowLeft size={16} /> Chi tiết sự kiện
           </button>
         </section>
 
@@ -640,7 +821,7 @@ export default function DonationEventsPage({
             </p>
           </div>
           <button type="button" className="community-secondary-button" onClick={closeDonationProductForm}>
-            <LuArrowLeft size={16} /> Danh sách sự kiện
+            <LuArrowLeft size={16} /> Chi tiết sự kiện
           </button>
         </section>
 
@@ -696,14 +877,12 @@ export default function DonationEventsPage({
 
               <label className="community-field">
                 <span className="community-label">Tình trạng</span>
-                <select
-                  className="community-select"
+                <input
+                  className="community-input"
                   value={productForm.tinh_trang}
                   onChange={(event) => setProductForm({ ...productForm, tinh_trang: event.target.value })}
-                >
-                  <option value="Như mới">Như mới</option>
-                  <option value="Đã qua sử dụng">Đã qua sử dụng</option>
-                </select>
+                  placeholder="Ví dụ: Sách còn mới, có ghi chú vài trang..."
+                />
               </label>
             </div>
 
@@ -778,7 +957,7 @@ export default function DonationEventsPage({
             <p className="community-subtitle">{selectedEvent.mo_ta || "Chưa có mô tả."}</p>
           </div>
           <button type="button" className="community-secondary-button" onClick={closeContributionPage}>
-            <LuArrowLeft size={16} /> Danh sách sự kiện
+            <LuArrowLeft size={16} /> Chi tiết sự kiện
           </button>
         </section>
 
@@ -798,7 +977,7 @@ export default function DonationEventsPage({
                 <span>Tổ chức: {selectedEvent.ten_to_chuc || "-"}</span>
               </div>
 
-              <DonorList donors={selectedEvent.nguoi_quyen_gop || []} />
+              <TransferDonorSummary donors={selectedEvent.nguoi_quyen_gop || []} />
             </div>
           </div>
 
@@ -865,6 +1044,93 @@ export default function DonationEventsPage({
     );
   }
 
+  if (detailEvent) {
+    const {
+      actionDisabled,
+      actionLabel,
+      itemDonationEvent,
+      saleEvent,
+      transferEvent,
+    } = getEventActionState(detailEvent);
+
+    return (
+      <main className="community-page">
+        <section className="community-hero">
+          <div>
+            <p className="community-kicker">Chi tiết quyên góp</p>
+            <h2 className="community-title">{detailEvent.ten_hoat_dong}</h2>
+            <p className="community-subtitle">{detailEvent.mo_ta || "Chưa có mô tả."}</p>
+          </div>
+          <button type="button" className="community-secondary-button" onClick={closeEventDetailPage}>
+            <LuArrowLeft size={16} /> Danh sách sự kiện
+          </button>
+        </section>
+
+        <section className="community-panel event-detail-panel">
+          <article className="contribution-event event-detail-card">
+            <img
+              src={getAssetUrl(detailEvent.anh_minh_hoa)}
+              alt={detailEvent.ten_hoat_dong || "Sự kiện quyên góp"}
+              className="community-card-image"
+              onError={(imageEvent) => {
+                imageEvent.currentTarget.onerror = null;
+                imageEvent.currentTarget.src = "/images/school-market-icon-v2.png";
+              }}
+            />
+            <div className="community-card-body">
+              <span className="community-badge"><LuHeart size={14} /> {getDonationTypeLabel(detailEvent.hinh_thuc_quyen_gop)}</span>
+              <h3 className="community-card-title">{detailEvent.ten_hoat_dong}</h3>
+              <p className="community-card-text">{detailEvent.mo_ta || "Chưa có mô tả."}</p>
+              <div className="community-meta">
+                <span><LuMapPin size={15} /> {detailEvent.dia_diem || "Chưa cập nhật địa điểm"}</span>
+                <span><LuCalendar size={15} /> Ngày tổ chức: {formatDate(detailEvent.ngay_to_chuc)}</span>
+                <span><LuClock size={15} /> Hạn kết thúc: {formatDate(detailEvent.han_ket_thuc)}</span>
+                <span>Tổ chức: {detailEvent.ten_to_chuc || "-"}</span>
+              </div>
+              {transferEvent && (
+                <div className="contribution-summary inline">
+                  <span>Số tiền tối thiểu</span>
+                  <strong>{formatCurrency(detailEvent.so_tien_toi_thieu)}</strong>
+                </div>
+              )}
+              {itemDonationEvent && (
+                <div className="contribution-summary inline">
+                  <span>Đồ vật cần nhận</span>
+                  <strong>{detailEvent.chi_tiet_do_vat || "Chưa cập nhật"}</strong>
+                </div>
+              )}
+              {saleEvent ? (
+                <EventProducts
+                  products={detailEvent.san_pham_quyen_gop || []}
+                  token={token}
+                  accountType={accountType}
+                  onLoginRequired={onLoginRequired}
+                  onBuyProductClick={onBuyProductClick}
+                  onError={setError}
+                />
+              ) : transferEvent ? (
+                <TransferDonorSummary donors={detailEvent.nguoi_quyen_gop || []} />
+              ) : (
+                <DonorList donors={detailEvent.nguoi_quyen_gop || []} />
+              )}
+              <div className="event-detail-actions">
+                <button
+                  type="button"
+                  className="community-primary-button"
+                  onClick={() => openEventActionPage(detailEvent)}
+                  disabled={actionDisabled}
+                >
+                  {(saleEvent || itemDonationEvent) && <LuPackagePlus size={16} />}
+                  {actionLabel}
+                </button>
+              </div>
+            </div>
+          </article>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="community-page">
       <section className="community-hero">
@@ -897,105 +1163,31 @@ export default function DonationEventsPage({
         ) : events.length === 0 ? (
           <p className="community-empty">Chưa có sự kiện quyên góp nào được duyệt.</p>
         ) : (
-          <div className="community-grid">
-            {events.map((event) => {
-              const saleEvent = isDonationSaleEvent(event);
-              const itemDonationEvent = isItemDonationEvent(event);
-              const transferEvent = isTransferEvent(event);
-              const transferReady = canJoinTransferEvent(event);
-              const actionDisabled = transferEvent
-                ? !transferReady || (Boolean(token) && accountType !== "thanh_vien")
-                : saleEvent
-                  ? Boolean(token) && accountType !== "thanh_vien"
-                  : itemDonationEvent
-                    ? Boolean(token) && accountType !== "thanh_vien"
-                    : true;
-              const actionLabel = itemDonationEvent
-                ? (token && accountType !== "thanh_vien"
-                    ? "Chỉ thành viên"
-                    : token
-                      ? "Tham gia"
-                      : "Đăng nhập để tham gia")
-                : saleEvent
-                ? (token && accountType !== "thanh_vien"
-                    ? "Chỉ thành viên"
-                    : token
-                      ? "Đăng sản phẩm quyên góp"
-                      : "Đăng nhập để tham gia")
-                : (!transferEvent
-                    ? "Chưa hỗ trợ"
-                    : !transferReady
-                      ? "Chưa sẵn sàng"
-                      : token && accountType !== "thanh_vien"
-                        ? "Chỉ thành viên"
-                        : token
-                          ? "Tham gia"
-                          : "Đăng nhập để tham gia");
-
-              return (
-                <article key={event.ma_hoat_dong} className="community-card">
-                  <img
-                    src={getAssetUrl(event.anh_minh_hoa)}
-                    alt={event.ten_hoat_dong || "Sự kiện quyên góp"}
-                    className="community-card-image"
-                    onError={(imageEvent) => {
-                      imageEvent.currentTarget.onerror = null;
-                      imageEvent.currentTarget.src = "/images/school-market-icon-v2.png";
-                    }}
-                  />
-                  <div className="community-card-body">
-                    <span className="community-badge"><LuHeart size={14} /> {getDonationTypeLabel(event.hinh_thuc_quyen_gop)}</span>
-                    <h3 className="community-card-title">{event.ten_hoat_dong}</h3>
-                    <p className="community-card-text">{event.mo_ta || "Chưa có mô tả."}</p>
-                    <div className="community-meta">
-                      <span><LuMapPin size={15} /> {event.dia_diem || "Chưa cập nhật địa điểm"}</span>
-                      <span><LuCalendar size={15} /> Ngày tổ chức: {formatDate(event.ngay_to_chuc)}</span>
-                      <span><LuClock size={15} /> Hạn kết thúc: {formatDate(event.han_ket_thuc)}</span>
-                      <span>Tổ chức: {event.ten_to_chuc || "-"}</span>
-                    </div>
-                    {transferEvent && (
-                      <div className="contribution-summary inline">
-                        <span>Số tiền tối thiểu</span>
-                        <strong>{formatCurrency(event.so_tien_toi_thieu)}</strong>
-                      </div>
-                    )}
-                    {itemDonationEvent && (
-                      <div className="contribution-summary inline">
-                        <span>Đồ vật cần nhận</span>
-                        <strong>{event.chi_tiet_do_vat || "Chưa cập nhật"}</strong>
-                      </div>
-                    )}
-                    {saleEvent ? (
-                      <EventProducts
-                        products={event.san_pham_quyen_gop || []}
-                        token={token}
-                        accountType={accountType}
-                        onLoginRequired={onLoginRequired}
-                        onBuyProductClick={onBuyProductClick}
-                        onError={setError}
-                      />
-                    ) : (
-                      <DonorList donors={event.nguoi_quyen_gop || []} />
-                    )}
-                    <button
-                      type="button"
-                      className="community-primary-button"
-                      onClick={() => (
-                        saleEvent
-                          ? openDonationProductForm(event)
-                          : itemDonationEvent
-                            ? openItemContributionPage(event)
-                            : openContributionPage(event)
-                      )}
-                      disabled={actionDisabled}
-                    >
-                      {(saleEvent || itemDonationEvent) && <LuPackagePlus size={16} />}
-                      {actionLabel}
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
+          <div className="event-summary-list">
+            {events.map((event) => (
+              <button
+                type="button"
+                key={event.ma_hoat_dong}
+                className="event-summary-card"
+                onClick={() => openEventDetailPage(event)}
+                aria-label={`Xem chi tiết sự kiện ${event.ten_hoat_dong || ""}`}
+              >
+                <img
+                  src={getAssetUrl(event.anh_minh_hoa)}
+                  alt={event.ten_hoat_dong || "Sự kiện quyên góp"}
+                  className="event-summary-image"
+                  onError={(imageEvent) => {
+                    imageEvent.currentTarget.onerror = null;
+                    imageEvent.currentTarget.src = "/images/school-market-icon-v2.png";
+                  }}
+                />
+                <span className="event-summary-content">
+                  <span className="community-badge"><LuHeart size={14} /> {getDonationTypeLabel(event.hinh_thuc_quyen_gop)}</span>
+                  <h3 className="community-card-title">{event.ten_hoat_dong}</h3>
+                  <span className="event-summary-org">Tổ chức: {event.ten_to_chuc || "-"}</span>
+                </span>
+              </button>
+            ))}
           </div>
         )}
       </section>

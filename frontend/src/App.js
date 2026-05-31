@@ -691,6 +691,19 @@ function App() {
               onClick={() => {
                 setOrganizationEventCreatorOpen(false);
                 setOrganizationManagerOpen(false);
+                setView("activities");
+              }}
+              style={styles.manageOrgButton}
+            >
+              Hoạt động
+            </button>
+          )}
+          {accountType === "to_chuc" && (
+            <button
+              type="button"
+              onClick={() => {
+                setOrganizationEventCreatorOpen(false);
+                setOrganizationManagerOpen(false);
                 setView("complaints");
               }}
               style={styles.manageOrgButton}
@@ -1407,7 +1420,7 @@ function AdminPendingProducts({ products, loading, onReload, onUpdateStatus }) {
               <tr>
                 <th style={styles.th}>Ảnh</th>
                 <th style={styles.th}>Tên sản phẩm</th>
-                <th style={styles.th}>Thành viên</th>
+                <th style={styles.th}>Người đăng</th>
                 <th style={styles.th}>Danh mục</th>
                 <th style={styles.th}>Giá</th>
                 <th style={styles.th}>Tình trạng</th>
@@ -1471,7 +1484,7 @@ function AdminPendingPosts({ posts, loading, onReload, onUpdateStatus }) {
       <div style={styles.sectionHeader}>
         <div>
           <h2 style={styles.sectionTitle}>Bài đăng hoạt động chờ duyệt</h2>
-          <p style={styles.sectionDescription}>Bài đăng của thành viên chỉ hiện trên web sau khi admin duyệt.</p>
+          <p style={styles.sectionDescription}>Bài đăng của thành viên hoặc tổ chức chỉ hiện trên web sau khi admin duyệt.</p>
         </div>
         <button onClick={onReload} style={styles.secondaryButton}>
           Tải lại
@@ -1488,7 +1501,8 @@ function AdminPendingPosts({ posts, loading, onReload, onUpdateStatus }) {
             <thead>
               <tr>
                 <th style={styles.th}>Tiêu đề</th>
-                <th style={styles.th}>Thành viên</th>
+                <th style={styles.th}>Ảnh</th>
+                <th style={styles.th}>Người đăng</th>
                 <th style={styles.th}>Loại</th>
                 <th style={styles.th}>Nội dung</th>
                 <th style={styles.th}>Ngày đăng</th>
@@ -1499,6 +1513,19 @@ function AdminPendingPosts({ posts, loading, onReload, onUpdateStatus }) {
               {posts.map((post) => (
                 <tr key={post.ma_bai_dang}>
                   <td style={styles.td}>{post.tieu_de}</td>
+                  <td style={styles.td}>
+                    {post.anh_minh_hoa ? (
+                      <a href={getAssetUrl(post.anh_minh_hoa)} target="_blank" rel="noreferrer">
+                        <img
+                          src={getAssetUrl(post.anh_minh_hoa)}
+                          alt="Ảnh bài đăng hoạt động"
+                          style={styles.complaintThumb}
+                        />
+                      </a>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
                   <td style={styles.td}>{post.ho_ten || "-"}</td>
                   <td style={styles.td}>{getActivityPostTypeLabel(post.loai_bai_dang)}</td>
                   <td style={{ ...styles.td, ...styles.longTextCell }}>{post.noi_dung || "-"}</td>
