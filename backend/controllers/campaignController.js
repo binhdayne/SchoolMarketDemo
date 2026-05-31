@@ -159,6 +159,7 @@ async function attachConfirmedDonors(campaigns) {
         `SELECT
             dg.ma_dong_gop,
             dg.ma_hoat_dong,
+            dg.ma_thanh_vien,
             dg.loai_dong_gop,
             dg.so_tien,
             dg.so_luong_do_vat,
@@ -179,6 +180,7 @@ async function attachConfirmedDonors(campaigns) {
         if (!map.has(campaignId)) map.set(campaignId, []);
         map.get(campaignId).push({
             ma_dong_gop: donor.ma_dong_gop,
+            ma_thanh_vien: donor.ma_thanh_vien,
             ho_ten: donor.ho_ten,
             lop: donor.lop,
             loai_dong_gop: donor.loai_dong_gop,
@@ -257,7 +259,7 @@ exports.createCampaign = async (req, res) => {
                 han_ket_thuc,
                 anh_minh_hoa,
                 hinh_thuc_quyen_gop,
-                ma_qr_quyen_gop || null,
+                requiresQr ? ma_qr_quyen_gop : null,
                 hinh_thuc_quyen_gop === TRANSFER_DONATION_TYPE ? so_tien_toi_thieu : 0,
                 chi_tiet_do_vat || null
             ]
@@ -276,7 +278,7 @@ exports.createCampaign = async (req, res) => {
                 han_ket_thuc,
                 anh_minh_hoa,
                 hinh_thuc_quyen_gop,
-                ma_qr_quyen_gop,
+                ma_qr_quyen_gop: requiresQr ? ma_qr_quyen_gop : null,
                 so_tien_toi_thieu,
                 chi_tiet_do_vat
             }
@@ -472,6 +474,7 @@ exports.getPendingContributions = async (req, res) => {
 exports.confirmContribution = async (req, res) => {
     const organizationId = req.user?.id;
     const { contributionId } = req.params;
+    const confirmedAmount = Number(req.body?.so_tien || 0);
 
     if (!organizationId) {
         return res.status(401).json({ message: "Không xác định được tài khoản tổ chức" });
@@ -481,7 +484,11 @@ exports.confirmContribution = async (req, res) => {
         await ensureCampaignExtraColumns();
 
         const [contributions] = await promiseDb.query(
-            `SELECT dg.ma_dong_gop, dg.trang_thai
+            `SELECT
+                dg.ma_dong_gop,
+                dg.trang_thai,
+                dg.loai_dong_gop,
+                hd.so_tien_toi_thieu
              FROM dong_gop_su_kien dg
              INNER JOIN hoat_dong_quyen_gop hd ON hd.ma_hoat_dong = dg.ma_hoat_dong
              WHERE dg.ma_dong_gop = ? AND hd.ma_to_chuc = ?
@@ -497,12 +504,33 @@ exports.confirmContribution = async (req, res) => {
             return res.status(409).json({ message: "Biên lai này đã được xử lý" });
         }
 
+        if (contributions[0].loai_dong_gop === TRANSFER_DONATION_TYPE) {
+            if (!Number.isFinite(confirmedAmount) || confirmedAmount <= 0) {
+                return res.status(400).json({ message: "Vui lòng nhập số tiền quyên góp đã xác nhận" });
+            }
+
+            const minimumAmount = Number(contributions[0].so_tien_toi_thieu || 0);
+            if (minimumAmount > 0 && confirmedAmount < minimumAmount) {
+                return res.status(400).json({
+                    message: `Số tiền tối thiểu là ${minimumAmount.toLocaleString("vi-VN")} đ`
+                });
+            }
+        }
+
         await promiseDb.query(
-            "UPDATE dong_gop_su_kien SET trang_thai = ?, ngay_xac_nhan = NOW() WHERE ma_dong_gop = ?",
-            [CONTRIBUTION_STATUS.CONFIRMED, contributionId]
+            `UPDATE dong_gop_su_kien
+             SET trang_thai = ?,
+                 so_tien = CASE WHEN loai_dong_gop = ? THEN ? ELSE so_tien END,
+                 ngay_xac_nhan = NOW()
+             WHERE ma_dong_gop = ?`,
+            [CONTRIBUTION_STATUS.CONFIRMED, TRANSFER_DONATION_TYPE, confirmedAmount, contributionId]
         );
 
-        res.json({ message: "Đã xác nhận biên lai quyên góp", trang_thai: CONTRIBUTION_STATUS.CONFIRMED });
+        res.json({
+            message: "Đã xác nhận biên lai quyên góp",
+            trang_thai: CONTRIBUTION_STATUS.CONFIRMED,
+            so_tien: confirmedAmount
+        });
     } catch (err) {
         res.status(500).json({ message: "Không thể xác nhận biên lai", error: err.message });
     }

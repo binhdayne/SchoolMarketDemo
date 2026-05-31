@@ -13,7 +13,7 @@ export default function PostProductPage({ navigate, token }) {
     const [submitting, setSubmitting] = useState(false);
     const [form, setForm] = useState({
         ten_san_pham: '', gia: '', mo_ta: '', ma_danh_muc: '',
-        tinh_trang: 'Như mới', so_luong: 1
+        tinh_trang: '', so_luong: 1
     });
 
     useEffect(() => {
@@ -116,10 +116,13 @@ export default function PostProductPage({ navigate, token }) {
                 </label>
                 <label className="form-field" htmlFor="tinh_trang">
                     <span className="field-label">Tình trạng</span>
-                    <select id="tinh_trang" className="input-field" value={form.tinh_trang} onChange={e => setForm({...form, tinh_trang: e.target.value})}>
-                        <option value="Như mới">Như mới</option>
-                        <option value="Đã qua sử dụng">Đã qua sử dụng</option>
-                    </select>
+                    <input
+                        id="tinh_trang"
+                        className="input-field"
+                        placeholder="Ví dụ: Mới 90%, đã dùng 1 học kỳ..."
+                        value={form.tinh_trang}
+                        onChange={e => setForm({...form, tinh_trang: e.target.value})}
+                    />
                 </label>
             </div>
 

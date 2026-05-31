@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import axios from "axios";
-import { LuCalendar, LuMessagesSquare, LuUsers } from "react-icons/lu";
+import { LuCalendar, LuMessagesSquare, LuPencil, LuUpload, LuUsers, LuX } from "react-icons/lu";
 import "./CommunityPages.css";
 
 const API = "http://localhost:5000/api";
@@ -27,14 +27,40 @@ function getPostTypeLabel(type) {
   return postTypeOptions.find((option) => option.value === type)?.label || "Khác";
 }
 
+function getAssetUrl(path) {
+  if (!path) return "";
+  if (/^(https?:|data:image\/)/i.test(path)) return path;
+  return `http://localhost:5000${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function getStatusLabel(status) {
+  if (status === "da_duyet" || status === "approved") return "Đã duyệt";
+  if (status === "tu_choi" || status === "rejected") return "Từ chối";
+  return "Chờ duyệt";
+}
+
+function getStatusClass(status) {
+  if (status === "da_duyet" || status === "approved") return "approved";
+  if (status === "tu_choi" || status === "rejected") return "rejected";
+  return "pending";
+}
+
 export default function ActivityPostsPage({ token, accountType, onBackHome }) {
   const [posts, setPosts] = useState([]);
+  const [myPosts, setMyPosts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMyPosts, setLoadingMyPosts] = useState(false);
   const [form, setForm] = useState(initialForm);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
+  const [existingImage, setExistingImage] = useState("");
+  const [removeExistingImage, setRemoveExistingImage] = useState(false);
+  const [editingPost, setEditingPost] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const canCreate = accountType === "thanh_vien";
+  const canCreate = ["thanh_vien", "to_chuc"].includes(accountType);
+  const selectedImagePreview = imagePreview || (!removeExistingImage && existingImage ? getAssetUrl(existingImage) : "");
 
   const loadPosts = () => {
     setLoading(true);
@@ -45,9 +71,40 @@ export default function ActivityPostsPage({ token, accountType, onBackHome }) {
       .finally(() => setLoading(false));
   };
 
+  const loadMyPosts = useCallback(() => {
+    if (!token || !canCreate) {
+      setMyPosts([]);
+      return;
+    }
+
+    setLoadingMyPosts(true);
+
+    axios.get(`${API}/posts/my-posts`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => setMyPosts(Array.isArray(res.data) ? res.data : []))
+      .catch((err) => setError(err.response?.data?.message || "Không thể tải bài đăng của bạn."))
+      .finally(() => setLoadingMyPosts(false));
+  }, [canCreate, token]);
+
   useEffect(() => {
     loadPosts();
   }, []);
+
+  useEffect(() => {
+    loadMyPosts();
+  }, [loadMyPosts]);
+
+  useEffect(() => {
+    if (!imageFile) {
+      setImagePreview("");
+      return undefined;
+    }
+
+    const previewUrl = URL.createObjectURL(imageFile);
+    setImagePreview(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [imageFile]);
 
   const handleChange = (event) => {
     setForm((currentForm) => ({
@@ -58,13 +115,61 @@ export default function ActivityPostsPage({ token, accountType, onBackHome }) {
     setError("");
   };
 
+  const handleImageChange = (event) => {
+    const file = event.target.files?.[0] || null;
+
+    if (file && !file.type.startsWith("image/")) {
+      setError("Vui lòng chọn đúng file ảnh.");
+      event.target.value = "";
+      return;
+    }
+
+    setImageFile(file);
+    setMessage("");
+    setError("");
+    event.target.value = "";
+  };
+
+  const resetForm = () => {
+    setForm(initialForm);
+    setImageFile(null);
+    setImagePreview("");
+    setExistingImage("");
+    setRemoveExistingImage(false);
+    setEditingPost(null);
+  };
+
+  const removeImage = () => {
+    setImageFile(null);
+    setImagePreview("");
+    if (editingPost && existingImage) {
+      setExistingImage("");
+      setRemoveExistingImage(true);
+    }
+  };
+
+  const startEditPost = (post) => {
+    setEditingPost(post);
+    setForm({
+      tieu_de: post.tieu_de || "",
+      loai_bai_dang: post.loai_bai_dang || "trao_doi_chia_se",
+      noi_dung: post.noi_dung || "",
+    });
+    setImageFile(null);
+    setImagePreview("");
+    setExistingImage(post.anh_minh_hoa || "");
+    setRemoveExistingImage(false);
+    setMessage("");
+    setError("");
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setMessage("");
     setError("");
 
     if (!canCreate) {
-      setError("Chỉ tài khoản thành viên mới có thể tạo bài đăng hoạt động.");
+      setError("Chỉ tài khoản thành viên hoặc tổ chức mới có thể tạo bài đăng hoạt động.");
       return;
     }
 
@@ -76,15 +181,33 @@ export default function ActivityPostsPage({ token, accountType, onBackHome }) {
     setSubmitting(true);
 
     try {
-      const res = await axios.post(`${API}/posts`, form, {
+      const formData = new FormData();
+      Object.entries(form).forEach(([key, value]) => {
+        formData.append(key, value);
+      });
+      if (imageFile) {
+        formData.append("anh_minh_hoa", imageFile);
+      }
+      if (editingPost && removeExistingImage) {
+        formData.append("remove_anh_minh_hoa", "1");
+      }
+
+      const request = editingPost
+        ? axios.put(`${API}/posts/${editingPost.ma_bai_dang}`, formData, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        : axios.post(`${API}/posts`, formData, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      setForm(initialForm);
-      setMessage(res.data.message || "Đã gửi bài đăng hoạt động cho admin duyệt.");
+      const res = await request;
+
+      resetForm();
+      setMessage(res.data.message || (editingPost ? "Đã gửi chỉnh sửa bài đăng hoạt động cho admin duyệt." : "Đã gửi bài đăng hoạt động cho admin duyệt."));
       loadPosts();
+      loadMyPosts();
     } catch (err) {
-      setError(err.response?.data?.message || "Không thể tạo bài đăng hoạt động.");
+      setError(err.response?.data?.message || "Không thể lưu bài đăng hoạt động.");
     } finally {
       setSubmitting(false);
     }
@@ -97,7 +220,7 @@ export default function ActivityPostsPage({ token, accountType, onBackHome }) {
           <p className="community-kicker">Hoạt động</p>
           <h2 className="community-title">Bài đăng cộng đồng</h2>
           <p className="community-subtitle">
-            Thành viên có thể tạo bài kêu gọi tình nguyện, trao đổi kinh nghiệm hoặc chia sẻ thông tin hữu ích.
+            Thành viên và tổ chức có thể tạo bài kêu gọi tình nguyện, trao đổi kinh nghiệm hoặc chia sẻ thông tin hữu ích.
           </p>
         </div>
         {onBackHome && (
@@ -113,7 +236,7 @@ export default function ActivityPostsPage({ token, accountType, onBackHome }) {
             <div>
               <h3 className="community-section-title">Tạo bài đăng</h3>
               <p className="community-section-description">
-                {canCreate ? "Bài đăng sẽ hiển thị sau khi admin duyệt." : "Chức năng tạo bài đăng dành cho tài khoản thành viên."}
+                {canCreate ? (editingPost ? "Chỉnh sửa sẽ hiển thị lại sau khi admin duyệt." : "Bài đăng sẽ hiển thị sau khi admin duyệt.") : "Chức năng tạo bài đăng dành cho tài khoản thành viên và tổ chức."}
               </p>
             </div>
           </div>
@@ -158,15 +281,87 @@ export default function ActivityPostsPage({ token, accountType, onBackHome }) {
               />
             </label>
 
+            <div className="community-field">
+              <span className="community-label">Ảnh minh họa (tùy chọn)</span>
+              <label className="activity-image-picker" htmlFor="activityPostImage">
+                <input
+                  id="activityPostImage"
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={handleImageChange}
+                  disabled={!canCreate}
+                />
+                {selectedImagePreview ? (
+                  <span className="activity-image-preview-wrap">
+                    <img src={selectedImagePreview} alt="Xem trước ảnh bài đăng" className="activity-image-preview" />
+                    <button
+                      type="button"
+                      className="activity-remove-image"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        removeImage();
+                      }}
+                      aria-label="Bỏ ảnh"
+                    >
+                      <LuX size={16} />
+                    </button>
+                  </span>
+                ) : (
+                  <span className="activity-image-placeholder">
+                    <LuUpload size={18} /> Chọn ảnh
+                  </span>
+                )}
+              </label>
+            </div>
+
             {message && <p className="community-alert success">{message}</p>}
             {error && <p className="community-alert error">{error}</p>}
 
             <div className="community-actions">
+              {editingPost && (
+                <button type="button" className="community-secondary-button" onClick={resetForm} disabled={submitting}>
+                  Hủy sửa
+                </button>
+              )}
               <button type="submit" className="community-primary-button" disabled={!canCreate || submitting}>
-                {submitting ? "Đang đăng..." : "Đăng bài"}
+                {submitting ? "Đang gửi..." : (editingPost ? "Gửi chỉnh sửa" : "Đăng bài")}
               </button>
             </div>
           </form>
+
+          {canCreate && (
+            <div className="my-activity-posts">
+              <h4>Bài đăng của tôi</h4>
+              {loadingMyPosts ? (
+                <p className="community-empty compact">Đang tải bài đăng của bạn...</p>
+              ) : myPosts.length === 0 ? (
+                <p className="community-empty compact">Bạn chưa có bài đăng hoạt động nào.</p>
+              ) : (
+                <div className="my-activity-list">
+                  {myPosts.map((post) => (
+                    <article key={post.ma_bai_dang} className="my-activity-item">
+                      <div>
+                        <span className={`activity-status ${getStatusClass(post.trang_thai)}`}>
+                          {getStatusLabel(post.trang_thai)}
+                        </span>
+                        <h5>{post.tieu_de}</h5>
+                        <p>{getPostTypeLabel(post.loai_bai_dang)} · {formatDate(post.ngay_dang)}</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="activity-edit-button"
+                        onClick={() => startEditPost(post)}
+                        title="Chỉnh sửa bài đăng"
+                      >
+                        <LuPencil size={16} />
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         <section className="community-panel">
@@ -185,6 +380,16 @@ export default function ActivityPostsPage({ token, accountType, onBackHome }) {
             <div className="activity-list">
               {posts.map((post) => (
                 <article key={post.ma_bai_dang} className="activity-post-card">
+                  {post.anh_minh_hoa && (
+                    <img
+                      src={getAssetUrl(post.anh_minh_hoa)}
+                      alt={post.tieu_de || "Ảnh bài đăng hoạt động"}
+                      className="activity-post-image"
+                      onError={(event) => {
+                        event.currentTarget.style.display = "none";
+                      }}
+                    />
+                  )}
                   <div className="activity-post-header">
                     <div>
                       <span className="community-badge">

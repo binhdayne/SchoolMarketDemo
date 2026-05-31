@@ -25,7 +25,7 @@ const initialOrganizationProductForm = {
   mo_ta: "",
   gia: "",
   ma_danh_muc: "",
-  tinh_trang: "Như mới",
+  tinh_trang: "",
   so_luong: 1,
 };
 
@@ -64,6 +64,9 @@ function OrganizationPage({
   const [approvedEventsMessage, setApprovedEventsMessage] = useState("");
   const [approvedEventsError, setApprovedEventsError] = useState("");
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [selectedEventProducts, setSelectedEventProducts] = useState([]);
+  const [loadingSelectedEventProducts, setLoadingSelectedEventProducts] = useState(false);
+  const [selectedEventProductsError, setSelectedEventProductsError] = useState("");
   const [deletingEventId, setDeletingEventId] = useState(null);
   const [pendingContributions, setPendingContributions] = useState([]);
   const [loadingContributions, setLoadingContributions] = useState(false);
@@ -101,9 +104,12 @@ function OrganizationPage({
       const res = await axios.get(`${API}/campaigns/my-approved`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setApprovedEvents(res.data);
+      const nextEvents = Array.isArray(res.data) ? res.data : [];
+      setApprovedEvents(nextEvents);
+      return nextEvents;
     } catch (err) {
       setApprovedEventsError(err.response?.data?.message || "Không thể tải sự kiện của tổ chức.");
+      return [];
     } finally {
       setLoadingApprovedEvents(false);
     }
@@ -163,6 +169,25 @@ function OrganizationPage({
     }
   }, [token]);
 
+  const loadSelectedEventProducts = useCallback(async (campaignId) => {
+    if (!token || !campaignId) return;
+
+    setLoadingSelectedEventProducts(true);
+    setSelectedEventProductsError("");
+
+    try {
+      const res = await axios.get(`${API}/products/organization-campaign/${campaignId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setSelectedEventProducts(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      setSelectedEventProducts([]);
+      setSelectedEventProductsError(err.response?.data?.error || "Không thể tải sản phẩm quyên góp của sự kiện.");
+    } finally {
+      setLoadingSelectedEventProducts(false);
+    }
+  }, [token]);
+
   useEffect(() => {
     setForm(getProfileForm(user));
   }, [user]);
@@ -174,6 +199,17 @@ function OrganizationPage({
     loadDonationSales();
     loadSellerPayouts();
   }, [loadCategories, loadApprovedEvents, loadPendingContributions, loadDonationSales, loadSellerPayouts]);
+
+  useEffect(() => {
+    if (selectedEvent?.hinh_thuc_quyen_gop !== "ban_do_quyen_gop") {
+      setSelectedEventProducts([]);
+      setSelectedEventProductsError("");
+      setLoadingSelectedEventProducts(false);
+      return;
+    }
+
+    loadSelectedEventProducts(selectedEvent.ma_hoat_dong);
+  }, [selectedEvent, loadSelectedEventProducts]);
 
   const handleChange = (event) => {
     setForm((currentForm) => ({ ...currentForm, [event.target.name]: event.target.value }));
@@ -212,9 +248,13 @@ function OrganizationPage({
   };
 
   const handleEventChange = (event) => {
+    const { name, value } = event.target;
     setEventForm((currentForm) => ({
       ...currentForm,
-      [event.target.name]: event.target.value,
+      [name]: value,
+      ...(name === "hinh_thuc_quyen_gop" && value === "nhan_do_vat"
+        ? { ma_qr_quyen_gop: "", so_tien_toi_thieu: "" }
+        : {}),
     }));
     setEventMessage("");
     setEventError("");
@@ -350,7 +390,12 @@ function OrganizationPage({
     setEventError("");
 
     try {
-      const res = await axios.post(`${API}/campaigns`, eventForm, {
+      const payload = {
+        ...eventForm,
+        ma_qr_quyen_gop: eventForm.hinh_thuc_quyen_gop === "nhan_do_vat" ? "" : eventForm.ma_qr_quyen_gop,
+      };
+
+      const res = await axios.post(`${API}/campaigns`, payload, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -454,6 +499,9 @@ function OrganizationPage({
       });
 
       setApprovedEventsMessage(res.data.message || "Đã gửi sản phẩm 100% quyên góp cho admin duyệt.");
+      if (selectedEvent?.ma_hoat_dong === productEventTarget.ma_hoat_dong) {
+        await loadSelectedEventProducts(productEventTarget.ma_hoat_dong);
+      }
       handleCloseEventProductCreator();
     } catch (err) {
       setProductError(err.response?.data?.error || "Không thể thêm sản phẩm cho sự kiện.");
@@ -463,7 +511,21 @@ function OrganizationPage({
   };
 
   const handleConfirmContribution = async (contribution) => {
-    const ok = window.confirm(`Xác nhận biên lai của ${contribution.ho_ten}?`);
+    const rawAmount = window.prompt(
+      `Nhập số tiền quyên góp thực nhận của ${contribution.ho_ten || "thành viên"}:`,
+      String(Number(contribution.so_tien || 0))
+    );
+    if (rawAmount === null) return;
+
+    const confirmedAmount = parseCurrencyInput(rawAmount);
+    if (!Number.isFinite(confirmedAmount) || confirmedAmount <= 0) {
+      setContributionError("Vui lòng nhập số tiền quyên góp hợp lệ.");
+      return;
+    }
+
+    const ok = window.confirm(
+      `Xác nhận biên lai của ${contribution.ho_ten} với số tiền ${formatCurrency(confirmedAmount)}?`
+    );
     if (!ok) return;
 
     setConfirmingContributionId(contribution.ma_dong_gop);
@@ -473,7 +535,7 @@ function OrganizationPage({
     try {
       const res = await axios.put(
         `${API}/campaigns/contributions/${contribution.ma_dong_gop}/confirm`,
-        {},
+        { so_tien: confirmedAmount },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
@@ -481,7 +543,11 @@ function OrganizationPage({
       setPendingContributions((currentContributions) =>
         currentContributions.filter((item) => item.ma_dong_gop !== contribution.ma_dong_gop)
       );
-      await loadApprovedEvents();
+      const nextEvents = await loadApprovedEvents();
+      setSelectedEvent((currentEvent) => {
+        if (currentEvent?.ma_hoat_dong !== contribution.ma_hoat_dong) return currentEvent;
+        return nextEvents.find((event) => event.ma_hoat_dong === contribution.ma_hoat_dong) || currentEvent;
+      });
     } catch (err) {
       setContributionError(err.response?.data?.message || "Không thể xác nhận biên lai.");
     } finally {
@@ -648,7 +714,13 @@ function OrganizationPage({
       )}
 
       {selectedEvent && (
-        <EventDetailDialog event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+        <EventDetailDialog
+          event={selectedEvent}
+          products={selectedEventProducts}
+          loadingProducts={loadingSelectedEventProducts}
+          productsError={selectedEventProductsError}
+          onClose={() => setSelectedEvent(null)}
+        />
       )}
 
       {productEventTarget && (
@@ -782,7 +854,7 @@ function OrganizationContributionRequests({
                 <p style={styles.eventCardText}>
                   {contribution.ho_ten || "Thành viên"} - {contribution.lop || "Chưa cập nhật lớp"}
                 </p>
-                <p style={styles.eventCardText}>Số tiền: {formatCurrency(contribution.so_tien)}</p>
+                <p style={styles.eventCardText}>Số tiền thành viên nhập: {formatCurrency(contribution.so_tien)}</p>
                 {contribution.ghi_chu && <p style={styles.eventCardText}>Ghi chú: {contribution.ghi_chu}</p>}
                 <button
                   type="button"
@@ -928,7 +1000,13 @@ function OrganizationSellerPayouts({
   );
 }
 
-function EventDetailDialog({ event, onClose }) {
+function EventDetailDialog({ event, products, loadingProducts, productsError, onClose }) {
+  const isDonationSaleEvent = event.hinh_thuc_quyen_gop === "ban_do_quyen_gop";
+  const isTransferDonationEvent = event.hinh_thuc_quyen_gop === "nhan_tien_chuyen_khoan";
+  const sellers = getEventProductSellers(products);
+  const transferDonors = getTransferDonationSummaries(event.nguoi_quyen_gop || []);
+  const transferTotal = transferDonors.reduce((total, donor) => total + donor.totalAmount, 0);
+
   return (
     <div style={styles.detailOverlay} role="presentation">
       <section style={styles.detailDialog} role="dialog" aria-modal="true" aria-labelledby="event-detail-title">
@@ -968,27 +1046,119 @@ function EventDetailDialog({ event, onClose }) {
             <p style={styles.detailText}>{event.chi_tiet_do_vat}</p>
           </div>
         )}
-        {event.ma_qr_quyen_gop && (
+        {event.hinh_thuc_quyen_gop !== "nhan_do_vat" && event.ma_qr_quyen_gop && (
           <div style={styles.detailQrBox}>
             <h3 style={styles.eventCardTitle}>QR nhận quyên góp</h3>
             <img src={event.ma_qr_quyen_gop} alt="QR nhận quyên góp" style={styles.detailQrImage} />
           </div>
         )}
-        <div style={styles.donorListBox}>
-          <h3 style={styles.eventCardTitle}>Người đã quyên góp</h3>
-          {event.nguoi_quyen_gop?.length ? (
-            <ul style={styles.donorList}>
-              {event.nguoi_quyen_gop.map((donor, index) => (
-                <li key={`${donor.ho_ten}-${donor.lop}-${index}`} style={styles.donorListItem}>
-                  <strong>{donor.ho_ten}</strong>
-                  <span>{donor.lop || "Chưa cập nhật lớp"}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p style={styles.emptyText}>Chưa có thành viên nào được xác nhận quyên góp.</p>
-          )}
-        </div>
+        {isDonationSaleEvent ? (
+          <>
+            <div style={styles.donorListBox}>
+              <h3 style={styles.eventCardTitle}>Sản phẩm người bán đã đăng quyên góp</h3>
+              {loadingProducts ? (
+                <p style={styles.emptyText}>Đang tải sản phẩm...</p>
+              ) : productsError ? (
+                <p style={styles.errorMessage}>{productsError}</p>
+              ) : products.length ? (
+                <div style={styles.detailProductList}>
+                  {products.map((product) => (
+                    <article key={product.ma_san_pham} style={styles.detailProductCard}>
+                      <img
+                        src={getAssetUrl(product.anh)}
+                        alt={product.ten_san_pham || "Sản phẩm quyên góp"}
+                        style={styles.detailProductImage}
+                        onError={(imageEvent) => {
+                          imageEvent.currentTarget.onerror = null;
+                          imageEvent.currentTarget.src = DEFAULT_ORGANIZATION_AVATAR;
+                        }}
+                      />
+                      <div style={styles.detailProductBody}>
+                        <div style={styles.detailProductHeader}>
+                          <div>
+                            <span style={styles.productCategory}>{product.ten_danh_muc || "Chưa phân loại"}</span>
+                            <h4 style={styles.detailProductTitle}>{product.ten_san_pham}</h4>
+                          </div>
+                          <span style={getProductStatusStyle(product.trang_thai)}>
+                            {getProductStatusLabel(product.trang_thai)}
+                          </span>
+                        </div>
+                        <strong style={styles.productPrice}>{formatCurrency(product.gia)}</strong>
+                        <p style={styles.eventCardText}>Người bán: {product.ten_nguoi_ban || "-"}</p>
+                        <p style={styles.eventCardText}>
+                          Quyên góp: {Number(product.so_phan_tram_quyen_gop || 0)}% - Số lượng: {product.so_luong || 0}
+                        </p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p style={styles.emptyText}>Chưa có người bán nào đăng sản phẩm vào sự kiện này.</p>
+              )}
+            </div>
+
+            <div style={styles.donorListBox}>
+              <h3 style={styles.eventCardTitle}>Người từng đăng bán vào hoạt động</h3>
+              {loadingProducts ? (
+                <p style={styles.emptyText}>Đang tải người bán...</p>
+              ) : productsError ? (
+                <p style={styles.errorMessage}>{productsError}</p>
+              ) : sellers.length ? (
+                <ul style={styles.donorList}>
+                  {sellers.map((seller) => (
+                    <li key={seller.key} style={styles.donorListItem}>
+                      <span style={styles.sellerInfo}>
+                        <strong>{seller.name}</strong>
+                        <small>{seller.description}</small>
+                      </span>
+                      <span>{seller.productCount} sản phẩm</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p style={styles.emptyText}>Chưa có người bán nào đăng bán vào hoạt động này.</p>
+              )}
+            </div>
+          </>
+        ) : (
+          <div style={styles.donorListBox}>
+            <h3 style={styles.eventCardTitle}>Người đã quyên góp</h3>
+            {isTransferDonationEvent && (
+              <div style={styles.donationTotalBox}>
+                <span>Tổng số tiền hoạt động nhận được</span>
+                <strong>{formatCurrency(transferTotal)}</strong>
+              </div>
+            )}
+            {isTransferDonationEvent ? (
+              transferDonors.length ? (
+                <ul style={styles.donorList}>
+                  {transferDonors.map((donor) => (
+                    <li key={donor.key} style={styles.donorListItem}>
+                      <span style={styles.sellerInfo}>
+                        <strong>{donor.name}</strong>
+                        <small>{donor.className}</small>
+                      </span>
+                      <span style={styles.donationAmount}>{formatCurrency(donor.totalAmount)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p style={styles.emptyText}>Chưa có thành viên nào được xác nhận quyên góp.</p>
+              )
+            ) : event.nguoi_quyen_gop?.length ? (
+              <ul style={styles.donorList}>
+                {event.nguoi_quyen_gop.map((donor, index) => (
+                  <li key={`${donor.ho_ten}-${donor.lop}-${index}`} style={styles.donorListItem}>
+                    <strong>{donor.ho_ten}</strong>
+                    <span>{donor.lop || "Chưa cập nhật lớp"}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p style={styles.emptyText}>Chưa có thành viên nào được xác nhận quyên góp.</p>
+            )}
+          </div>
+        )}
       </section>
     </div>
   );
@@ -1279,15 +1449,13 @@ function OrganizationProductForm({
 
         <label style={styles.field}>
           <span style={styles.fieldLabel}>Tình trạng</span>
-          <select
+          <input
             name="tinh_trang"
             value={form.tinh_trang}
             onChange={onChange}
+            placeholder="Ví dụ: Mới 95%, còn hộp, đã dùng nhẹ..."
             style={styles.input}
-          >
-            <option value="Như mới">Như mới</option>
-            <option value="Đã qua sử dụng">Đã qua sử dụng</option>
-          </select>
+          />
         </label>
 
         <EditableField
@@ -1527,6 +1695,28 @@ function formatCurrency(value) {
   });
 }
 
+function parseCurrencyInput(value) {
+  const rawValue = String(value || "").trim();
+  const usesThousandsSuffix = /k$/i.test(rawValue);
+  if (usesThousandsSuffix) {
+    const suffixAmount = Number(
+      rawValue
+        .replace(/k$/i, "")
+        .replace(",", ".")
+        .replace(/[^\d.-]/g, "")
+    );
+
+    return suffixAmount * 1000;
+  }
+
+  const normalizedValue = rawValue
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+
+  return Number(normalizedValue);
+}
+
 function getAssetUrl(path) {
   if (!path) return DEFAULT_ORGANIZATION_AVATAR;
   if (/^(https?:|data:image\/)/i.test(path)) return path;
@@ -1538,6 +1728,80 @@ function getDonationTypeLabel(type) {
   if (type === "ban_do_quyen_gop") return "Bán đồ quyên góp";
   if (type === "nhan_do_vat") return "Nhận đồ vật";
   return type || "-";
+}
+
+function getProductStatusLabel(status) {
+  if (status === "cho_duyet") return "Chờ duyệt";
+  if (status === "da_duyet") return "Đã duyệt";
+  if (status === "tu_choi") return "Từ chối";
+  if (status === "dang_giao_dich") return "Đang giao dịch";
+  return status || "-";
+}
+
+function getProductStatusStyle(status) {
+  if (status === "da_duyet") {
+    return { ...styles.statusBadge, backgroundColor: "#ecfdf5", color: "#047857" };
+  }
+
+  if (status === "tu_choi") {
+    return { ...styles.statusBadge, backgroundColor: "#fef2f2", color: "#b91c1c" };
+  }
+
+  if (status === "dang_giao_dich") {
+    return { ...styles.statusBadge, backgroundColor: "#eff6ff", color: "#1d4ed8" };
+  }
+
+  return { ...styles.statusBadge, backgroundColor: "#fff7ed", color: "#9a3412" };
+}
+
+function getEventProductSellers(products) {
+  const sellersByKey = new Map();
+
+  products.forEach((product) => {
+    const sellerKey = [
+      product.loai_nguoi_ban || "khac",
+      product.ma_thanh_vien || product.ma_to_chuc || product.ten_nguoi_ban || "unknown",
+    ].join("-");
+
+    if (!sellersByKey.has(sellerKey)) {
+      sellersByKey.set(sellerKey, {
+        key: sellerKey,
+        name: product.ten_nguoi_ban || "Người bán",
+        description:
+          product.loai_nguoi_ban === "to_chuc"
+            ? "Tổ chức đăng sản phẩm"
+            : product.lop_nguoi_ban || "Chưa cập nhật lớp",
+        productCount: 0,
+      });
+    }
+
+    sellersByKey.get(sellerKey).productCount += 1;
+  });
+
+  return Array.from(sellersByKey.values());
+}
+
+function getTransferDonationSummaries(donors) {
+  const donorsByMember = new Map();
+
+  donors
+    .filter((donor) => donor.loai_dong_gop === "nhan_tien_chuyen_khoan")
+    .forEach((donor, index) => {
+      const donorKey = [donor.ho_ten || "Thành viên", donor.lop || "", donor.ma_thanh_vien || index].join("-");
+
+      if (!donorsByMember.has(donorKey)) {
+        donorsByMember.set(donorKey, {
+          key: donorKey,
+          name: donor.ho_ten || "Thành viên",
+          className: donor.lop || "Chưa cập nhật lớp",
+          totalAmount: 0,
+        });
+      }
+
+      donorsByMember.get(donorKey).totalAmount += Number(donor.so_tien || 0);
+    });
+
+  return Array.from(donorsByMember.values()).sort((a, b) => b.totalAmount - a.totalAmount);
 }
 
 function getProfileForm(user) {
@@ -1907,6 +2171,76 @@ const styles = {
     gap: 10,
     justifyContent: "space-between",
     padding: "9px 11px",
+  },
+  donationTotalBox: {
+    alignItems: "center",
+    backgroundColor: "#ecfdf5",
+    border: "1px solid #a7f3d0",
+    borderRadius: 8,
+    display: "flex",
+    gap: 12,
+    justifyContent: "space-between",
+    padding: "12px 14px",
+  },
+  donationAmount: {
+    color: "#047857",
+    fontWeight: 800,
+  },
+  sellerInfo: {
+    display: "grid",
+    gap: 2,
+  },
+  detailProductList: {
+    display: "grid",
+    gap: 12,
+  },
+  detailProductCard: {
+    border: "1px solid #e5e7eb",
+    borderRadius: 8,
+    display: "grid",
+    gap: 12,
+    gridTemplateColumns: "120px minmax(0, 1fr)",
+    overflow: "hidden",
+  },
+  detailProductImage: {
+    backgroundColor: "#f3f4f6",
+    height: "100%",
+    minHeight: 132,
+    objectFit: "cover",
+    width: "100%",
+  },
+  detailProductBody: {
+    alignContent: "start",
+    display: "grid",
+    gap: 7,
+    padding: 12,
+  },
+  detailProductHeader: {
+    alignItems: "flex-start",
+    display: "flex",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  detailProductTitle: {
+    color: "#111827",
+    fontSize: 16,
+    margin: "3px 0 0",
+  },
+  productCategory: {
+    color: "#047857",
+    fontSize: 12,
+    fontWeight: 800,
+  },
+  productPrice: {
+    color: "#047857",
+    fontSize: 17,
+  },
+  statusBadge: {
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 800,
+    padding: "5px 8px",
+    whiteSpace: "nowrap",
   },
   accountManager: {
     backgroundColor: "#fff",

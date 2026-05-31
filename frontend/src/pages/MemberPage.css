@@ -513,6 +513,99 @@
   background-color: #d32f2f;
 }
 
+.save-btn {
+  background-color: #16a34a;
+  color: white;
+}
+
+.save-btn:hover {
+  background-color: #15803d;
+}
+
+.save-btn:disabled,
+.cancel-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.product-edit-modal {
+  display: grid;
+  gap: 14px;
+  max-height: 90vh;
+  max-width: 720px;
+  overflow-y: auto;
+  text-align: left;
+  width: min(720px, 92vw);
+}
+
+.product-edit-modal h3 {
+  color: #111827;
+  margin: 0;
+}
+
+.edit-product-upload {
+  display: grid;
+  gap: 8px;
+}
+
+.edit-product-upload span,
+.edit-field span {
+  color: #374151;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.edit-product-upload input {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 9px;
+}
+
+.edit-product-upload img {
+  background: #f9fafb;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  height: 180px;
+  object-fit: contain;
+  width: 100%;
+}
+
+.edit-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.edit-field {
+  display: grid;
+  gap: 7px;
+}
+
+.edit-field input,
+.edit-field select,
+.edit-field textarea {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-sizing: border-box;
+  color: #111827;
+  font: inherit;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.edit-field textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.edit-field input:focus,
+.edit-field select:focus,
+.edit-field textarea:focus {
+  border-color: #559e7a;
+  box-shadow: 0 0 0 3px rgba(85, 158, 122, 0.14);
+  outline: none;
+}
+
 /* Hiệu ứng trượt và mờ cực mượt */
 @keyframes fadeIn {
   from { opacity: 0; }
@@ -522,4 +615,10 @@
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 640px) {
+  .edit-grid {
+    grid-template-columns: 1fr;
+  }
 }

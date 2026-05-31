@@ -19,7 +19,7 @@ const initialPostProductForm = {
   gia: '',
   mo_ta: '',
   ma_danh_muc: '',
-  tinh_trang: 'Như mới',
+  tinh_trang: '',
   so_luong: 1,
   ma_hoat_dong: '',
   so_phan_tram_quyen_gop: '',
@@ -726,10 +726,13 @@ export default function LandingPage({
 
               <label className="post-form-field" htmlFor="homePostCondition">
                 <span>Tình trạng</span>
-                <select id="homePostCondition" name="tinh_trang" value={postForm.tinh_trang} onChange={updatePostForm}>
-                  <option value="Như mới">Như mới</option>
-                  <option value="Đã qua sử dụng">Đã qua sử dụng</option>
-                </select>
+                <input
+                  id="homePostCondition"
+                  name="tinh_trang"
+                  value={postForm.tinh_trang}
+                  onChange={updatePostForm}
+                  placeholder="Ví dụ: Mới 90%, còn nguyên tem..."
+                />
               </label>
             </div>
 
