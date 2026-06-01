@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import './MemberPage.css';
 import {
@@ -165,6 +165,9 @@ export default function MemberPage({ user, token, navigate }) {
   const [activeTab, setActiveTab] = useState('Sản phẩm của tôi');
   const [stats, setStats] = useState({ spDaDang: 0, daBan: 0, quyenGop: 0 });
   const [myProducts, setMyProducts] = useState([]);
+  const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [productStatusFilter, setProductStatusFilter] = useState('all');
+  const [productCategoryFilter, setProductCategoryFilter] = useState('all');
   const [memberProfile, setMemberProfile] = useState(user || {});
   const [paymentSummary, setPaymentSummary] = useState({ systemFees: [], organizationDebts: [] });
   const [categories, setCategories] = useState([]);
@@ -252,6 +255,27 @@ export default function MemberPage({ user, token, navigate }) {
   };
 
   const hasBankQr = Boolean(String(memberProfile?.ma_ngan_hang || user?.ma_ngan_hang || '').trim());
+
+  const filteredMyProducts = useMemo(() => {
+    const keyword = productSearchTerm.trim().toLowerCase();
+
+    return myProducts.filter((product) => {
+      const matchesStatus = productStatusFilter === 'all' || product.trang_thai === productStatusFilter;
+      const matchesCategory =
+        productCategoryFilter === 'all' || Number(product.ma_danh_muc) === Number(productCategoryFilter);
+
+      if (!matchesStatus || !matchesCategory) return false;
+      if (!keyword) return true;
+
+      return [
+        product.ten_san_pham,
+        product.mo_ta,
+        product.tinh_trang,
+        product.ten_danh_muc,
+        product.ten_hoat_dong,
+      ].some((value) => String(value || '').toLowerCase().includes(keyword));
+    });
+  }, [myProducts, productCategoryFilter, productSearchTerm, productStatusFilter]);
 
   const handleAddProduct = () => {
     setNotice('');
@@ -508,6 +532,40 @@ export default function MemberPage({ user, token, navigate }) {
 
         {notice && <p className="member-notice">{notice}</p>}
 
+        {activeTab === 'Sản phẩm của tôi' && (
+          <div className="member-filter-bar">
+            <label>
+              <span>Tìm kiếm</span>
+              <input
+                value={productSearchTerm}
+                onChange={(event) => setProductSearchTerm(event.target.value)}
+                placeholder="Tên sản phẩm, mô tả, sự kiện..."
+              />
+            </label>
+            <label>
+              <span>Trạng thái</span>
+              <select value={productStatusFilter} onChange={(event) => setProductStatusFilter(event.target.value)}>
+                <option value="all">Tất cả trạng thái</option>
+                <option value="cho_duyet">Chờ duyệt</option>
+                <option value="da_duyet">Đã duyệt</option>
+                <option value="tu_choi">Từ chối</option>
+                <option value="dang_giao_dich">Đang giao dịch</option>
+              </select>
+            </label>
+            <label>
+              <span>Danh mục</span>
+              <select value={productCategoryFilter} onChange={(event) => setProductCategoryFilter(event.target.value)}>
+                <option value="all">Tất cả danh mục</option>
+                {categories.map((category) => (
+                  <option key={category.ma_danh_muc} value={category.ma_danh_muc}>
+                    {category.ten_danh_muc}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+
         {deleteModal.isOpen && (
           <div className="modal-overlay">
             <div className="modal-content">
@@ -600,7 +658,9 @@ export default function MemberPage({ user, token, navigate }) {
         {activeTab === 'Sản phẩm của tôi' ? (
           myProducts.length > 0 ? (
             <div className="product-list">
-              {myProducts.map((product) => {
+              {filteredMyProducts.length === 0 ? (
+                <p style={{ color: '#666', fontSize: '14px' }}>Không có sản phẩm phù hợp với bộ lọc.</p>
+              ) : filteredMyProducts.map((product) => {
                 const status = getProductStatus(product);
                 const hasBuyer = Boolean(product.ma_thanh_toan);
 
@@ -623,6 +683,9 @@ export default function MemberPage({ user, token, navigate }) {
                           </div>
                           <span className="product-time">{product.ten_danh_muc || 'Chưa phân loại'}</span>
                           <span className="product-time">Còn lại: {product.so_luong || 0}</span>
+                          {product.trang_thai === 'tu_choi' && product.ly_do_tu_choi && (
+                            <span className="product-rejection-reason">Lý do từ chối: {product.ly_do_tu_choi}</span>
+                          )}
                         </div>
                       </div>
 

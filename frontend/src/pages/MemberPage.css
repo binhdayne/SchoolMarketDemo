@@ -63,6 +63,46 @@
   padding: 10px 12px;
 }
 
+.member-filter-bar {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  margin-bottom: 18px;
+  padding: 14px;
+}
+
+.member-filter-bar label {
+  display: grid;
+  gap: 6px;
+}
+
+.member-filter-bar span {
+  color: #374151;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.member-filter-bar input,
+.member-filter-bar select {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-sizing: border-box;
+  color: #111827;
+  font: inherit;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.member-filter-bar input:focus,
+.member-filter-bar select:focus {
+  border-color: #559e7a;
+  box-shadow: 0 0 0 3px rgba(85, 158, 122, 0.14);
+  outline: none;
+}
+
 /* --- CSS CHO DANH SÁCH SẢN PHẨM TRONG CONTENT AREA --- */
 .product-list {
   display: flex;
@@ -150,6 +190,17 @@
 .product-time {
   font-size: 13px;
   color: #888;
+}
+
+.product-rejection-reason {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #991b1b;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+  padding: 8px 10px;
 }
 
 .product-actions-row {
@@ -442,6 +493,10 @@
   }
 
   .payment-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .member-filter-bar {
     grid-template-columns: 1fr;
   }
 

@@ -1,6 +1,15 @@
 const db = require("../config/db");
+const { createNotification } = require("./notificationController");
 
 const promiseDb = db.promise();
+
+async function notifySafely(payload) {
+    try {
+        await createNotification(payload);
+    } catch (err) {
+        console.error("Không thể tạo thông báo bài đăng:", err);
+    }
+}
 
 const POST_STATUS = {
     PENDING: "cho_duyet",
@@ -24,6 +33,7 @@ async function ensureActivityPostTable() {
             anh_minh_hoa LONGTEXT NULL,
             loai_bai_dang VARCHAR(50),
             trang_thai VARCHAR(50),
+            ly_do_tu_choi TEXT NULL,
             ngay_dang DATETIME DEFAULT CURRENT_TIMESTAMP,
             ma_thanh_vien INT,
             ma_to_chuc INT
@@ -45,6 +55,14 @@ async function ensureActivityPostTable() {
             throw err;
         }
     }
+
+    try {
+        await promiseDb.query("ALTER TABLE bai_dang ADD COLUMN ly_do_tu_choi TEXT NULL AFTER trang_thai");
+    } catch (err) {
+        if (err.code !== "ER_DUP_FIELDNAME") {
+            throw err;
+        }
+    }
 }
 
 function getPostSelectSql(whereClause = "") {
@@ -56,6 +74,7 @@ function getPostSelectSql(whereClause = "") {
             bd.anh_minh_hoa,
             bd.loai_bai_dang,
             bd.trang_thai,
+            bd.ly_do_tu_choi,
             bd.ngay_dang,
             bd.ma_thanh_vien,
             bd.ma_to_chuc,
@@ -233,7 +252,8 @@ exports.updatePost = async (req, res) => {
                  noi_dung = ?,
                  anh_minh_hoa = ?,
                  loai_bai_dang = ?,
-                 trang_thai = ?
+                 trang_thai = ?,
+                 ly_do_tu_choi = NULL
              WHERE ma_bai_dang = ?`,
             [tieu_de, noi_dung, anh_minh_hoa, loai_bai_dang, POST_STATUS.PENDING, id]
         );
@@ -260,14 +280,34 @@ exports.approvePost = async (req, res) => {
     try {
         await ensureActivityPostTable();
 
+        const [posts] = await promiseDb.query(
+            "SELECT ma_bai_dang, tieu_de, ma_thanh_vien, ma_to_chuc FROM bai_dang WHERE ma_bai_dang = ? LIMIT 1",
+            [id]
+        );
+
+        if (posts.length === 0) {
+            return res.status(404).json({ message: "Không tìm thấy bài đăng." });
+        }
+
+        const post = posts[0];
+
         const [result] = await promiseDb.query(
-            "UPDATE bai_dang SET trang_thai = ? WHERE ma_bai_dang = ?",
+            "UPDATE bai_dang SET trang_thai = ?, ly_do_tu_choi = NULL WHERE ma_bai_dang = ?",
             [POST_STATUS.APPROVED, id]
         );
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "Không tìm thấy bài đăng." });
         }
+
+        await notifySafely({
+            ma_thanh_vien: post.ma_thanh_vien,
+            ma_to_chuc: post.ma_to_chuc,
+            tieu_de: "Bài đăng hoạt động đã được duyệt",
+            noi_dung: `Bài đăng "${post.tieu_de}" đã được admin duyệt và hiển thị trên hệ thống.`,
+            loai_thong_bao: "duyet_bai_dang",
+            duong_dan: "activities"
+        });
 
         res.json({ message: "Đã duyệt bài đăng." });
     } catch (err) {
@@ -277,20 +317,45 @@ exports.approvePost = async (req, res) => {
 
 exports.rejectPost = async (req, res) => {
     const { id } = req.params;
+    const rejectionReason = String(req.body?.ly_do_tu_choi || req.body?.reason || "").trim();
+
+    if (!rejectionReason) {
+        return res.status(400).json({ message: "Vui lòng nhập lý do từ chối bài đăng." });
+    }
 
     try {
         await ensureActivityPostTable();
 
+        const [posts] = await promiseDb.query(
+            "SELECT ma_bai_dang, tieu_de, ma_thanh_vien, ma_to_chuc FROM bai_dang WHERE ma_bai_dang = ? LIMIT 1",
+            [id]
+        );
+
+        if (posts.length === 0) {
+            return res.status(404).json({ message: "Không tìm thấy bài đăng." });
+        }
+
+        const post = posts[0];
+
         const [result] = await promiseDb.query(
-            "UPDATE bai_dang SET trang_thai = ? WHERE ma_bai_dang = ?",
-            [POST_STATUS.REJECTED, id]
+            "UPDATE bai_dang SET trang_thai = ?, ly_do_tu_choi = ? WHERE ma_bai_dang = ?",
+            [POST_STATUS.REJECTED, rejectionReason, id]
         );
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "Không tìm thấy bài đăng." });
         }
 
-        res.json({ message: "Đã từ chối bài đăng." });
+        await notifySafely({
+            ma_thanh_vien: post.ma_thanh_vien,
+            ma_to_chuc: post.ma_to_chuc,
+            tieu_de: "Bài đăng hoạt động bị từ chối",
+            noi_dung: `Admin yêu cầu chỉnh sửa bài đăng "${post.tieu_de}". Lý do: ${rejectionReason}`,
+            loai_thong_bao: "duyet_bai_dang",
+            duong_dan: "activities"
+        });
+
+        res.json({ message: "Đã từ chối bài đăng.", trang_thai: POST_STATUS.REJECTED, ly_do_tu_choi: rejectionReason });
     } catch (err) {
         res.status(500).json({ message: "Không thể từ chối bài đăng.", error: err.message });
     }

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { LuCalendar, LuMessagesSquare, LuPencil, LuUpload, LuUsers, LuX } from "react-icons/lu";
 import "./CommunityPages.css";
@@ -48,6 +48,10 @@ function getStatusClass(status) {
 export default function ActivityPostsPage({ token, accountType, onBackHome }) {
   const [posts, setPosts] = useState([]);
   const [myPosts, setMyPosts] = useState([]);
+  const [postSearchTerm, setPostSearchTerm] = useState("");
+  const [postTypeFilter, setPostTypeFilter] = useState("all");
+  const [postStatusFilter, setPostStatusFilter] = useState("all");
+  const [myPostStatusFilter, setMyPostStatusFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [loadingMyPosts, setLoadingMyPosts] = useState(false);
   const [form, setForm] = useState(initialForm);
@@ -105,6 +109,32 @@ export default function ActivityPostsPage({ token, accountType, onBackHome }) {
     setImagePreview(previewUrl);
     return () => URL.revokeObjectURL(previewUrl);
   }, [imageFile]);
+
+  const filteredPosts = useMemo(() => {
+    const keyword = postSearchTerm.trim().toLowerCase();
+
+    return posts.filter((post) => {
+      const matchesType = postTypeFilter === "all" || post.loai_bai_dang === postTypeFilter;
+      const matchesStatus = postStatusFilter === "all" || post.trang_thai === postStatusFilter;
+      if (!matchesType) return false;
+      if (!matchesStatus) return false;
+      if (!keyword) return true;
+
+      return [
+        post.tieu_de,
+        post.noi_dung,
+        post.ho_ten,
+        getPostTypeLabel(post.loai_bai_dang),
+      ].some((value) => String(value || "").toLowerCase().includes(keyword));
+    });
+  }, [postSearchTerm, postStatusFilter, postTypeFilter, posts]);
+
+  const filteredMyPosts = useMemo(() => {
+    return myPosts.filter((post) => {
+      if (myPostStatusFilter === "all") return true;
+      return post.trang_thai === myPostStatusFilter;
+    });
+  }, [myPostStatusFilter, myPosts]);
 
   const handleChange = (event) => {
     setForm((currentForm) => ({
@@ -333,13 +363,28 @@ export default function ActivityPostsPage({ token, accountType, onBackHome }) {
           {canCreate && (
             <div className="my-activity-posts">
               <h4>Bài đăng của tôi</h4>
+              <label className="community-field">
+                <span className="community-label">Lọc trạng thái</span>
+                <select
+                  className="community-select"
+                  value={myPostStatusFilter}
+                  onChange={(event) => setMyPostStatusFilter(event.target.value)}
+                >
+                  <option value="all">Tất cả trạng thái</option>
+                  <option value="cho_duyet">Chờ duyệt</option>
+                  <option value="da_duyet">Đã duyệt</option>
+                  <option value="tu_choi">Từ chối</option>
+                </select>
+              </label>
               {loadingMyPosts ? (
                 <p className="community-empty compact">Đang tải bài đăng của bạn...</p>
               ) : myPosts.length === 0 ? (
                 <p className="community-empty compact">Bạn chưa có bài đăng hoạt động nào.</p>
+              ) : filteredMyPosts.length === 0 ? (
+                <p className="community-empty compact">Không có bài đăng phù hợp trạng thái.</p>
               ) : (
                 <div className="my-activity-list">
-                  {myPosts.map((post) => (
+                  {filteredMyPosts.map((post) => (
                     <article key={post.ma_bai_dang} className="my-activity-item">
                       <div>
                         <span className={`activity-status ${getStatusClass(post.trang_thai)}`}>
@@ -347,6 +392,9 @@ export default function ActivityPostsPage({ token, accountType, onBackHome }) {
                         </span>
                         <h5>{post.tieu_de}</h5>
                         <p>{getPostTypeLabel(post.loai_bai_dang)} · {formatDate(post.ngay_dang)}</p>
+                        {post.trang_thai === "tu_choi" && post.ly_do_tu_choi && (
+                          <p className="activity-rejection-reason">Lý do từ chối: {post.ly_do_tu_choi}</p>
+                        )}
                       </div>
                       <button
                         type="button"
@@ -368,17 +416,55 @@ export default function ActivityPostsPage({ token, accountType, onBackHome }) {
           <div className="community-section-header">
             <div>
               <h3 className="community-section-title">Danh sách hoạt động</h3>
-              <p className="community-section-description">{posts.length} bài đăng đang hiển thị</p>
+              <p className="community-section-description">{filteredPosts.length} / {posts.length} bài đăng đang hiển thị</p>
             </div>
+          </div>
+
+          <div className="community-filter-bar">
+            <label className="community-field">
+              <span className="community-label">Tìm kiếm</span>
+              <input
+                className="community-input"
+                value={postSearchTerm}
+                onChange={(event) => setPostSearchTerm(event.target.value)}
+                placeholder="Tiêu đề, nội dung, người đăng..."
+              />
+            </label>
+            <label className="community-field">
+              <span className="community-label">Loại bài đăng</span>
+              <select
+                className="community-select"
+                value={postTypeFilter}
+                onChange={(event) => setPostTypeFilter(event.target.value)}
+              >
+                <option value="all">Tất cả loại bài</option>
+                {postTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="community-field">
+              <span className="community-label">Trạng thái</span>
+              <select
+                className="community-select"
+                value={postStatusFilter}
+                onChange={(event) => setPostStatusFilter(event.target.value)}
+              >
+                <option value="all">Tất cả trạng thái</option>
+                <option value="da_duyet">Đã duyệt</option>
+              </select>
+            </label>
           </div>
 
           {loading ? (
             <p className="community-empty">Đang tải bài đăng...</p>
           ) : posts.length === 0 ? (
             <p className="community-empty">Chưa có bài đăng hoạt động nào.</p>
+          ) : filteredPosts.length === 0 ? (
+            <p className="community-empty">Không có bài đăng phù hợp với bộ lọc.</p>
           ) : (
             <div className="activity-list">
-              {posts.map((post) => (
+              {filteredPosts.map((post) => (
                 <article key={post.ma_bai_dang} className="activity-post-card">
                   {post.anh_minh_hoa && (
                     <img

@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { createNotification } = require('./notificationController');
 const promiseDb = db.promise();
 
 const PRODUCT_STATUS = {
@@ -24,6 +25,14 @@ const SELLER_PAYOUT_STATUS = {
 const DONATION_PRODUCT_TYPE = 'ban_do_quyen_gop';
 const SYSTEM_FEE_RATE = 0.05;
 
+async function notifySafely(payload) {
+    try {
+        await createNotification(payload);
+    } catch (err) {
+        console.error("Không thể tạo thông báo sản phẩm:", err);
+    }
+}
+
 const DEFAULT_CATEGORIES = [
     'Đồ dùng học tập',
     'Điện tử',
@@ -35,6 +44,7 @@ const DEFAULT_CATEGORIES = [
 
 let productImageColumnReady = false;
 let productOrganizationColumnReady = false;
+let productReviewColumnReady = false;
 let defaultCategoriesReady = false;
 let paymentQuantityColumnReady = false;
 
@@ -57,6 +67,20 @@ async function ensureProductOrganizationColumn() {
     }
 
     productOrganizationColumnReady = true;
+}
+
+async function ensureProductReviewColumn() {
+    if (productReviewColumnReady) return;
+
+    try {
+        await promiseDb.query("ALTER TABLE san_pham ADD COLUMN ly_do_tu_choi TEXT NULL AFTER trang_thai");
+    } catch (err) {
+        if (err.code !== "ER_DUP_FIELDNAME") {
+            throw err;
+        }
+    }
+
+    productReviewColumnReady = true;
 }
 
 async function ensureDefaultCategories() {
@@ -192,10 +216,15 @@ exports.getPublicProducts = async (req, res) => {
                 sp.so_phan_tram_quyen_gop,
                 dm.ten_danh_muc,
                 hd.ten_hoat_dong,
-                hd.hinh_thuc_quyen_gop
+                hd.hinh_thuc_quyen_gop,
+                COALESCE(seller.ho_ten, owner_org.ten_to_chuc) AS ten_nguoi_dang,
+                seller.lop AS lop_nguoi_dang,
+                owner_org.ten_to_chuc AS ten_to_chuc_dang
              FROM san_pham sp
              LEFT JOIN danh_muc dm ON dm.ma_danh_muc = sp.ma_danh_muc
              LEFT JOIN hoat_dong_quyen_gop hd ON hd.ma_hoat_dong = sp.ma_hoat_dong
+             LEFT JOIN thanh_vien seller ON seller.ma_thanh_vien = sp.ma_thanh_vien
+             LEFT JOIN to_chuc owner_org ON owner_org.ma_to_chuc = sp.ma_to_chuc
              WHERE sp.trang_thai = ? AND COALESCE(sp.so_luong, 0) > 0
              ORDER BY sp.ngay_dang DESC, sp.ma_san_pham DESC`,
             [PRODUCT_STATUS.APPROVED]
@@ -325,6 +354,7 @@ exports.createProduct = async (req, res) => {
         await ensureProductImageColumn();
         await ensureProductOrganizationColumn();
         await ensureDefaultCategories();
+        await ensureProductReviewColumn();
 
         if (!req.body || Object.keys(req.body).length === 0) {
             return res.status(400).json({
@@ -452,6 +482,7 @@ exports.createProduct = async (req, res) => {
 exports.getMyProducts = async (req, res) => {
     try {
         await ensurePaymentQuantityColumn();
+        await ensureProductReviewColumn();
 
         const ma_thanh_vien = req.user.id;
 
@@ -498,6 +529,7 @@ exports.updateProduct = async (req, res) => {
         await ensureProductImageColumn();
         await ensureProductOrganizationColumn();
         await ensureDefaultCategories();
+        await ensureProductReviewColumn();
 
         const {
             ten_san_pham,
@@ -575,7 +607,8 @@ exports.updateProduct = async (req, res) => {
                  tinh_trang = ?,
                  so_luong = ?,
                  ma_danh_muc = ?,
-                 trang_thai = ?
+                 trang_thai = ?,
+                 ly_do_tu_choi = NULL
              WHERE ma_san_pham = ? AND ma_thanh_vien = ?`,
             [
                 finalTenSanPham,
@@ -850,6 +883,28 @@ exports.createPurchase = async (req, res) => {
 
         await promiseDb.commit();
 
+        if (product.ma_thanh_vien) {
+            await notifySafely({
+                ma_thanh_vien: product.ma_thanh_vien,
+                tieu_de: "Có người mua sản phẩm",
+                noi_dung: isDonationProduct
+                    ? `Sản phẩm "${product.ten_san_pham}" đã có người mua và đang chờ tổ chức xác nhận biên lai.`
+                    : `Sản phẩm "${product.ten_san_pham}" đã có người mua. Vui lòng kiểm tra biên lai và xác nhận giao dịch.`,
+                loai_thong_bao: "mua_san_pham",
+                duong_dan: "dashboard"
+            });
+        }
+
+        if (isDonationProduct && product.ma_to_chuc) {
+            await notifySafely({
+                ma_to_chuc: product.ma_to_chuc,
+                tieu_de: "Có biên lai mua sản phẩm quyên góp",
+                noi_dung: `Sản phẩm "${product.ten_san_pham}" đã có người mua chuyển khoản. Vui lòng xác nhận biên lai.`,
+                loai_thong_bao: "mua_san_pham_quyen_gop",
+                duong_dan: "dashboard"
+            });
+        }
+
         res.status(201).json({
             message: remainingQuantity > 0
                 ? "Đã gửi biên lai cho người bán xác nhận. Sản phẩm vẫn hiển thị với số lượng còn lại."
@@ -885,7 +940,15 @@ exports.confirmPurchase = async (req, res) => {
         await promiseDb.beginTransaction();
 
         const [payments] = await promiseDb.query(
-            `SELECT tt.ma_thanh_toan, tt.ma_san_pham, tt.trang_thai, tt.so_luong, sp.ma_thanh_vien, sp.so_luong AS so_luong_con_lai
+            `SELECT
+                tt.ma_thanh_toan,
+                tt.ma_san_pham,
+                tt.ma_thanh_vien_gui,
+                tt.trang_thai,
+                tt.so_luong,
+                sp.ma_thanh_vien,
+                sp.ten_san_pham,
+                sp.so_luong AS so_luong_con_lai
              FROM thanh_toan tt
              INNER JOIN san_pham sp ON sp.ma_san_pham = tt.ma_san_pham
              WHERE tt.ma_thanh_toan = ?
@@ -917,6 +980,14 @@ exports.confirmPurchase = async (req, res) => {
 
         await promiseDb.commit();
 
+        await notifySafely({
+            ma_thanh_vien: payment.ma_thanh_vien_gui,
+            tieu_de: "Người bán đã xác nhận giao dịch",
+            noi_dung: `Giao dịch mua "${payment.ten_san_pham}" đã được người bán xác nhận.`,
+            loai_thong_bao: "xac_nhan_giao_dich",
+            duong_dan: "dashboard"
+        });
+
         res.json({
             message: "Đã xác nhận giao dịch.",
             ma_san_pham: payment.ma_san_pham,
@@ -946,7 +1017,15 @@ exports.rejectPurchase = async (req, res) => {
         await promiseDb.beginTransaction();
 
         const [payments] = await promiseDb.query(
-            `SELECT tt.ma_thanh_toan, tt.ma_san_pham, tt.trang_thai, tt.so_luong, sp.ma_thanh_vien, sp.so_luong AS so_luong_con_lai
+            `SELECT
+                tt.ma_thanh_toan,
+                tt.ma_san_pham,
+                tt.ma_thanh_vien_gui,
+                tt.trang_thai,
+                tt.so_luong,
+                sp.ma_thanh_vien,
+                sp.ten_san_pham,
+                sp.so_luong AS so_luong_con_lai
              FROM thanh_toan tt
              INNER JOIN san_pham sp ON sp.ma_san_pham = tt.ma_san_pham
              WHERE tt.ma_thanh_toan = ?
@@ -984,6 +1063,14 @@ exports.rejectPurchase = async (req, res) => {
         );
 
         await promiseDb.commit();
+
+        await notifySafely({
+            ma_thanh_vien: payment.ma_thanh_vien_gui,
+            tieu_de: "Người bán đã từ chối giao dịch",
+            noi_dung: `Giao dịch mua "${payment.ten_san_pham}" đã bị người bán từ chối. Bạn có thể kiểm tra lại biên lai hoặc liên hệ người bán.`,
+            loai_thong_bao: "tu_choi_giao_dich",
+            duong_dan: "dashboard"
+        });
 
         res.json({
             message: "Đã từ chối giao dịch. Sản phẩm đã hiện lại trên trang chủ.",
@@ -1263,8 +1350,11 @@ exports.confirmOrganizationDonationSale = async (req, res) => {
         const [payments] = await promiseDb.query(
             `SELECT
                 tt.ma_thanh_toan,
+                tt.ma_thanh_vien_gui,
+                tt.ma_thanh_vien_nhan,
                 tt.trang_thai,
                 tt.so_tien_tra_nguoi_ban,
+                sp.ten_san_pham,
                 hd.ma_to_chuc
              FROM thanh_toan tt
              INNER JOIN san_pham sp ON sp.ma_san_pham = tt.ma_san_pham
@@ -1299,6 +1389,26 @@ exports.confirmOrganizationDonationSale = async (req, res) => {
         );
 
         await promiseDb.commit();
+
+        await notifySafely({
+            ma_thanh_vien: payment.ma_thanh_vien_gui,
+            tieu_de: "Tổ chức đã xác nhận biên lai",
+            noi_dung: `Biên lai mua sản phẩm quyên góp "${payment.ten_san_pham}" đã được tổ chức xác nhận.`,
+            loai_thong_bao: "to_chuc_xac_nhan",
+            duong_dan: "donations"
+        });
+
+        if (payment.ma_thanh_vien_nhan) {
+            await notifySafely({
+                ma_thanh_vien: payment.ma_thanh_vien_nhan,
+                tieu_de: "Sản phẩm quyên góp đã bán thành công",
+                noi_dung: nextPayoutStatus === SELLER_PAYOUT_STATUS.PENDING
+                    ? `Tổ chức đã xác nhận biên lai cho "${payment.ten_san_pham}". Khoản còn lại đang chờ tổ chức thanh toán cho bạn.`
+                    : `Tổ chức đã xác nhận biên lai cho "${payment.ten_san_pham}".`,
+                loai_thong_bao: "to_chuc_xac_nhan",
+                duong_dan: "dashboard"
+            });
+        }
 
         res.json({
             message: "Đã xác nhận biên lai mua sản phẩm quyên góp.",
@@ -1371,8 +1481,10 @@ exports.confirmOrganizationSellerPayout = async (req, res) => {
         const [payments] = await promiseDb.query(
             `SELECT
                 tt.ma_thanh_toan,
+                tt.ma_thanh_vien_nhan,
                 tt.trang_thai,
-                tt.trang_thai_chi_tra_nguoi_ban
+                tt.trang_thai_chi_tra_nguoi_ban,
+                sp.ten_san_pham
              FROM thanh_toan tt
              INNER JOIN san_pham sp ON sp.ma_san_pham = tt.ma_san_pham
              INNER JOIN hoat_dong_quyen_gop hd ON hd.ma_hoat_dong = sp.ma_hoat_dong
@@ -1405,6 +1517,14 @@ exports.confirmOrganizationSellerPayout = async (req, res) => {
 
         await promiseDb.commit();
 
+        await notifySafely({
+            ma_thanh_vien: payment.ma_thanh_vien_nhan,
+            tieu_de: "Tổ chức đã thanh toán cho người bán",
+            noi_dung: `Tổ chức đã xác nhận thanh toán phần còn lại cho sản phẩm "${payment.ten_san_pham}".`,
+            loai_thong_bao: "thanh_toan_nguoi_ban",
+            duong_dan: "dashboard"
+        });
+
         res.json({
             message: "Đã xác nhận thanh toán cho người bán.",
             trang_thai_chi_tra_nguoi_ban: SELLER_PAYOUT_STATUS.PAID
@@ -1422,6 +1542,7 @@ exports.confirmOrganizationSellerPayout = async (req, res) => {
 exports.getPendingProducts = async (req, res) => {
     try {
         await ensureProductOrganizationColumn();
+        await ensureProductReviewColumn();
 
         const [products] = await promiseDb.execute(
             `SELECT
@@ -1432,6 +1553,7 @@ exports.getPendingProducts = async (req, res) => {
                 sp.gia,
                 sp.tinh_trang,
                 sp.trang_thai,
+                sp.ly_do_tu_choi,
                 sp.so_luong,
                 sp.ngay_dang,
                 sp.so_phan_tram_quyen_gop,
@@ -1457,20 +1579,54 @@ exports.getPendingProducts = async (req, res) => {
 exports.updateProductStatus = async (req, res) => {
     const { id } = req.params;
     const nextStatus = req.action === 'approve' ? PRODUCT_STATUS.APPROVED : PRODUCT_STATUS.REJECTED;
+    const rejectionReason = String(req.body?.ly_do_tu_choi || req.body?.reason || "").trim();
+
+    if (req.action === 'reject' && !rejectionReason) {
+        return res.status(400).json({ error: "Vui lòng nhập lý do từ chối sản phẩm." });
+    }
 
     try {
+        await ensureProductOrganizationColumn();
+        await ensureProductReviewColumn();
+
+        const [products] = await promiseDb.execute(
+            `SELECT ma_san_pham, ten_san_pham, ma_thanh_vien, ma_to_chuc
+             FROM san_pham
+             WHERE ma_san_pham = ?
+             LIMIT 1`,
+            [id]
+        );
+
+        if (products.length === 0) {
+            return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
+        }
+
+        const product = products[0];
+
         const [result] = await promiseDb.execute(
-            'UPDATE san_pham SET trang_thai = ? WHERE ma_san_pham = ?',
-            [nextStatus, id]
+            'UPDATE san_pham SET trang_thai = ?, ly_do_tu_choi = ? WHERE ma_san_pham = ?',
+            [nextStatus, req.action === 'reject' ? rejectionReason : null, id]
         );
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
         }
 
+        await notifySafely({
+            ma_thanh_vien: product.ma_thanh_vien,
+            ma_to_chuc: product.ma_to_chuc,
+            tieu_de: req.action === 'approve' ? "Sản phẩm đã được duyệt" : "Sản phẩm bị từ chối",
+            noi_dung: req.action === 'approve'
+                ? `Sản phẩm "${product.ten_san_pham}" đã được admin duyệt và hiển thị trên hệ thống.`
+                : `Admin yêu cầu chỉnh sửa sản phẩm "${product.ten_san_pham}". Lý do: ${rejectionReason}`,
+            loai_thong_bao: "duyet_san_pham",
+            duong_dan: "dashboard"
+        });
+
         res.json({
             message: req.action === 'approve' ? "Đã duyệt sản phẩm." : "Đã từ chối sản phẩm.",
-            trang_thai: nextStatus
+            trang_thai: nextStatus,
+            ly_do_tu_choi: req.action === 'reject' ? rejectionReason : null
         });
     } catch (err) {
         res.status(500).json({ error: "Không thể cập nhật trạng thái sản phẩm: " + err.message });

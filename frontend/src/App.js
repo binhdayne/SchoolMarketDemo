@@ -10,7 +10,7 @@ import ActivityPostsPage from "./pages/ActivityPostsPage";
 import MemberAccountPage from "./pages/MemberAccountPage";
 import ProductPurchasePage from "./pages/ProductPurchasePage";
 import ComplaintPage from "./pages/ComplaintPage";
-import { LuCalendar, LuFlag, LuHeart, LuShoppingBag } from "react-icons/lu";
+import { LuBell, LuCalendar, LuCheckCheck, LuFlag, LuHeart, LuShoppingBag } from "react-icons/lu";
 
 const API = "http://localhost:5000/api";
 
@@ -21,6 +21,19 @@ function decodeToken(token) {
   } catch {
     return null;
   }
+}
+
+function askRejectionReason(label) {
+  const reason = window.prompt(`Nhập lý do từ chối ${label}:`);
+  if (reason === null) return null;
+
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) {
+    window.alert("Vui lòng nhập lý do từ chối.");
+    return null;
+  }
+
+  return trimmedReason;
 }
 
 function App() {
@@ -61,11 +74,16 @@ function App() {
   const [banReason, setBanReason] = useState("");
   const [banSubmitting, setBanSubmitting] = useState(false);
   const [notice, setNotice] = useState("");
+  const [notifications, setNotifications] = useState([]);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
   const [organizationManagerOpen, setOrganizationManagerOpen] = useState(false);
   const [organizationEventCreatorOpen, setOrganizationEventCreatorOpen] = useState(false);
   const decodedToken = token ? decodeToken(token) : null;
   const role = currentUser?.vai_tro || decodedToken?.role;
   const accountType = currentUser?.loai_tai_khoan || decodedToken?.accountType || role;
+  const canUseNotifications = ["thanh_vien", "to_chuc"].includes(accountType);
 
   const loadAdminData = useCallback(async () => {
     if (!token || role !== "admin") return;
@@ -193,6 +211,59 @@ function App() {
     loadAdminData();
   }, [loadAdminData]);
 
+  const loadNotifications = useCallback(async () => {
+    if (!token || !canUseNotifications) {
+      setNotifications([]);
+      setUnreadNotifications(0);
+      return;
+    }
+
+    setLoadingNotifications(true);
+
+    try {
+      const [notificationsRes, countRes] = await Promise.all([
+        axios.get(`${API}/notifications`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        axios.get(`${API}/notifications/unread-count`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+
+      setNotifications(Array.isArray(notificationsRes.data) ? notificationsRes.data : []);
+      setUnreadNotifications(Number(countRes.data?.unread || 0));
+    } catch {
+      setNotifications([]);
+      setUnreadNotifications(0);
+    } finally {
+      setLoadingNotifications(false);
+    }
+  }, [canUseNotifications, token]);
+
+  const loadUnreadNotifications = useCallback(async () => {
+    if (!token || !canUseNotifications) return;
+
+    try {
+      const res = await axios.get(`${API}/notifications/unread-count`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setUnreadNotifications(Number(res.data?.unread || 0));
+    } catch {
+      setUnreadNotifications(0);
+    }
+  }, [canUseNotifications, token]);
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    if (!token || !canUseNotifications) return undefined;
+
+    const timer = window.setInterval(loadUnreadNotifications, 30000);
+    return () => window.clearInterval(timer);
+  }, [canUseNotifications, loadUnreadNotifications, token]);
+
   const handleLoginSuccess = (newToken, user) => {
     localStorage.setItem("token", newToken);
     localStorage.setItem("user", JSON.stringify(user));
@@ -236,10 +307,78 @@ function App() {
     setBanDialog(null);
     setBanReason("");
     setNotice("");
+    setNotifications([]);
+    setUnreadNotifications(0);
+    setNotificationsOpen(false);
     setOrganizationManagerOpen(false);
     setOrganizationEventCreatorOpen(false);
     setAuthMode(null);
     setView("dashboard");
+  };
+
+  const openNotificationTarget = (target) => {
+    setNotificationsOpen(false);
+
+    if (!target) return;
+
+    if (accountType === "to_chuc") {
+      setOrganizationEventCreatorOpen(false);
+      setOrganizationManagerOpen(false);
+    }
+
+    if (target === "activities") {
+      setView("activities");
+    } else if (target === "donations") {
+      setView("donations");
+    } else {
+      setView(accountType === "thanh_vien" && target === "home" ? "home" : "dashboard");
+    }
+  };
+
+  const toggleNotifications = async () => {
+    const nextOpen = !notificationsOpen;
+    setNotificationsOpen(nextOpen);
+    if (nextOpen) {
+      await loadNotifications();
+    }
+  };
+
+  const markNotificationRead = async (notification) => {
+    if (!notification?.ma_thong_bao || !token) return;
+
+    try {
+      if (!notification.da_doc) {
+        await axios.put(`${API}/notifications/${notification.ma_thong_bao}/read`, {}, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setNotifications((currentNotifications) =>
+          currentNotifications.map((item) =>
+            item.ma_thong_bao === notification.ma_thong_bao ? { ...item, da_doc: 1 } : item
+          )
+        );
+        setUnreadNotifications((count) => Math.max(0, count - 1));
+      }
+
+      openNotificationTarget(notification.duong_dan);
+    } catch {
+      setNotice("Không thể cập nhật thông báo.");
+    }
+  };
+
+  const markAllNotificationsRead = async () => {
+    if (!token) return;
+
+    try {
+      await axios.put(`${API}/notifications/read-all`, {}, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setNotifications((currentNotifications) =>
+        currentNotifications.map((notification) => ({ ...notification, da_doc: 1 }))
+      );
+      setUnreadNotifications(0);
+    } catch {
+      setNotice("Không thể đánh dấu thông báo.");
+    }
   };
 
   const goHome = () => {
@@ -280,11 +419,14 @@ function App() {
   };
 
   const updateAccountStatus = async (account, action) => {
+    const rejectionReason = action === "reject" ? askRejectionReason("tài khoản") : null;
+    if (action === "reject" && !rejectionReason) return;
+
     try {
       const endpoint = action === "approve" ? "approve-account" : "reject-account";
       const res = await axios.put(
         `${API}/auth/${endpoint}/${account.loai_tai_khoan}/${account.id}`,
-        {},
+        action === "reject" ? { ly_do_tu_choi: rejectionReason } : {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
@@ -297,13 +439,13 @@ function App() {
       if (account.loai_tai_khoan === "to_chuc") {
         setAdminOrganizations((prev) =>
           prev.map((item) =>
-            item.ma_to_chuc === account.id ? { ...item, trang_thai: nextStatus } : item
+            item.ma_to_chuc === account.id ? { ...item, trang_thai: nextStatus, ly_do_tu_choi: rejectionReason } : item
           )
         );
       } else {
         setAdminMembers((prev) =>
           prev.map((item) =>
-            item.ma_thanh_vien === account.id ? { ...item, trang_thai: nextStatus } : item
+            item.ma_thanh_vien === account.id ? { ...item, trang_thai: nextStatus, ly_do_tu_choi: rejectionReason } : item
           )
         );
       }
@@ -314,11 +456,14 @@ function App() {
   };
 
   const updateCampaignStatus = async (campaign, action) => {
+    const rejectionReason = action === "reject" ? askRejectionReason("sự kiện quyên góp") : null;
+    if (action === "reject" && !rejectionReason) return;
+
     try {
       const endpoint = action === "approve" ? "approve" : "reject";
       const res = await axios.put(
         `${API}/campaigns/${campaign.ma_hoat_dong}/${endpoint}`,
-        {},
+        action === "reject" ? { ly_do_tu_choi: rejectionReason } : {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
@@ -332,11 +477,14 @@ function App() {
   };
 
   const updateProductStatus = async (product, action) => {
+    const rejectionReason = action === "reject" ? askRejectionReason("sản phẩm") : null;
+    if (action === "reject" && !rejectionReason) return;
+
     try {
       const endpoint = action === "approve" ? "approve" : "reject";
       const res = await axios.put(
         `${API}/products/${product.ma_san_pham}/${endpoint}`,
-        {},
+        action === "reject" ? { ly_do_tu_choi: rejectionReason } : {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
@@ -350,11 +498,14 @@ function App() {
   };
 
   const updatePostStatus = async (post, action) => {
+    const rejectionReason = action === "reject" ? askRejectionReason("bài đăng hoạt động") : null;
+    if (action === "reject" && !rejectionReason) return;
+
     try {
       const endpoint = action === "approve" ? "approve" : "reject";
       const res = await axios.put(
         `${API}/posts/${endpoint}/${post.ma_bai_dang}`,
-        {},
+        action === "reject" ? { ly_do_tu_choi: rejectionReason } : {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
@@ -543,6 +694,19 @@ function App() {
         onPostProductClick={openPostProduct}
         onBuyProductClick={openProductPurchase}
         onLogout={handleLogout}
+        notificationSlot={
+          canUseNotifications ? (
+            <NotificationBell
+              notifications={notifications}
+              unreadCount={unreadNotifications}
+              isOpen={notificationsOpen}
+              loading={loadingNotifications}
+              onToggle={toggleNotifications}
+              onRead={markNotificationRead}
+              onReadAll={markAllNotificationsRead}
+            />
+          ) : null
+        }
       />
     );
   }
@@ -560,6 +724,13 @@ function App() {
           onComplaintClick={() => setView("complaints")}
           onAccountClick={() => setView("member-account")}
           onLogout={handleLogout}
+          notifications={notifications}
+          unreadNotifications={unreadNotifications}
+          notificationsOpen={notificationsOpen}
+          loadingNotifications={loadingNotifications}
+          onToggleNotifications={toggleNotifications}
+          onReadNotification={markNotificationRead}
+          onReadAllNotifications={markAllNotificationsRead}
         />
 
         {notice && <p style={{ ...styles.notice, ...styles.memberNotice }}>{notice}</p>}
@@ -650,6 +821,17 @@ function App() {
           ) : null}
         </div>
         <div style={styles.account}>
+          {canUseNotifications && (
+            <NotificationBell
+              notifications={notifications}
+              unreadCount={unreadNotifications}
+              isOpen={notificationsOpen}
+              loading={loadingNotifications}
+              onToggle={toggleNotifications}
+              onRead={markNotificationRead}
+              onReadAll={markAllNotificationsRead}
+            />
+          )}
           {accountType === "to_chuc" && (
             <img
               src={currentUser?.avatar || "/images/school-market-icon-v2.png"}
@@ -856,6 +1038,13 @@ function MemberNavbar({
   onComplaintClick,
   onAccountClick,
   onLogout,
+  notifications,
+  unreadNotifications,
+  notificationsOpen,
+  loadingNotifications,
+  onToggleNotifications,
+  onReadNotification,
+  onReadAllNotifications,
 }) {
   const displayName = getDisplayName(user);
 
@@ -908,6 +1097,15 @@ function MemberNavbar({
         </div>
 
         <div className="nav-actions">
+          <NotificationBell
+            notifications={notifications}
+            unreadCount={unreadNotifications}
+            isOpen={notificationsOpen}
+            loading={loadingNotifications}
+            onToggle={onToggleNotifications}
+            onRead={onReadNotification}
+            onReadAll={onReadAllNotifications}
+          />
           <button type="button" className="nav-user nav-user-button" onClick={onAccountClick}>
             <span className="nav-user-name">{displayName}</span>
             <span className="nav-user-role">Thành viên</span>
@@ -918,6 +1116,79 @@ function MemberNavbar({
         </div>
       </div>
     </header>
+  );
+}
+
+function NotificationBell({
+  notifications = [],
+  unreadCount = 0,
+  isOpen,
+  loading,
+  onToggle,
+  onRead,
+  onReadAll,
+}) {
+  return (
+    <div style={styles.notificationWrap}>
+      <button
+        type="button"
+        onClick={onToggle}
+        style={styles.notificationButton}
+        aria-label="Thông báo"
+      >
+        <LuBell size={18} />
+        {unreadCount > 0 && (
+          <span style={styles.notificationBadge}>
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {isOpen && (
+        <div style={styles.notificationPanel}>
+          <div style={styles.notificationHeader}>
+            <strong>Thông báo</strong>
+            <button
+              type="button"
+              onClick={onReadAll}
+              style={styles.notificationReadAll}
+              disabled={unreadCount === 0}
+            >
+              <LuCheckCheck size={15} /> Đọc tất cả
+            </button>
+          </div>
+
+          {loading ? (
+            <p style={styles.notificationEmpty}>Đang tải thông báo...</p>
+          ) : notifications.length === 0 ? (
+            <p style={styles.notificationEmpty}>Chưa có thông báo nào.</p>
+          ) : (
+            <div style={styles.notificationList}>
+              {notifications.map((notification) => (
+                <button
+                  type="button"
+                  key={notification.ma_thong_bao}
+                  onClick={() => onRead(notification)}
+                  style={{
+                    ...styles.notificationItem,
+                    ...(notification.da_doc ? {} : styles.notificationItemUnread),
+                  }}
+                >
+                  <span style={styles.notificationDotWrap}>
+                    {!notification.da_doc && <span style={styles.notificationDot} />}
+                  </span>
+                  <span style={styles.notificationContent}>
+                    <strong>{notification.tieu_de}</strong>
+                    {notification.noi_dung && <span>{notification.noi_dung}</span>}
+                    <small>{formatNotificationDate(notification.ngay_tao)}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1104,6 +1375,7 @@ function AdminMembersTable({ members, loading, onReload, onOpenBanDialog, onUnba
                 <th style={styles.th}>Ngân hàng</th>
                 <th style={styles.th}>Phí nợ</th>
                 <th style={styles.th}>Trạng thái</th>
+                <th style={styles.th}>Lý do từ chối</th>
                 <th style={styles.th}>Lý do cấm</th>
                 <th style={styles.th}>Thao tác</th>
               </tr>
@@ -1123,6 +1395,7 @@ function AdminMembersTable({ members, loading, onReload, onOpenBanDialog, onUnba
                   <td style={styles.td}>
                     <span style={getStatusStyle(member.trang_thai)}>{getStatusLabel(member.trang_thai)}</span>
                   </td>
+                  <td style={{ ...styles.td, ...styles.longTextCell }}>{member.ly_do_tu_choi || "-"}</td>
                   <td style={{ ...styles.td, ...styles.longTextCell }}>{member.ly_do_cam || "-"}</td>
                   <td style={styles.td}>
                     {member.trang_thai === "bi_cam" ? (
@@ -1194,6 +1467,7 @@ function AdminOrganizationsTable({ organizations, loading, onReload, onOpenBanDi
                 <th style={styles.th}>Địa chỉ</th>
                 <th style={styles.th}>Mô tả</th>
                 <th style={styles.th}>Trạng thái</th>
+                <th style={styles.th}>Lý do từ chối</th>
                 <th style={styles.th}>Lý do cấm</th>
                 <th style={styles.th}>Thao tác</th>
               </tr>
@@ -1212,6 +1486,7 @@ function AdminOrganizationsTable({ organizations, loading, onReload, onOpenBanDi
                       {getStatusLabel(organization.trang_thai)}
                     </span>
                   </td>
+                  <td style={{ ...styles.td, ...styles.longTextCell }}>{organization.ly_do_tu_choi || "-"}</td>
                   <td style={{ ...styles.td, ...styles.longTextCell }}>{organization.ly_do_cam || "-"}</td>
                   <td style={styles.td}>
                     {organization.trang_thai === "bi_cam" ? (
@@ -1695,6 +1970,16 @@ function formatDate(value) {
   return new Date(value).toLocaleDateString("vi-VN");
 }
 
+function formatNotificationDate(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function formatCurrency(value) {
   const amount = Number(value || 0);
   return amount.toLocaleString("vi-VN", {
@@ -1905,6 +2190,110 @@ const styles = {
     cursor: "pointer",
     fontWeight: 600,
     padding: "9px 12px",
+  },
+  notificationWrap: {
+    position: "relative",
+  },
+  notificationButton: {
+    alignItems: "center",
+    backgroundColor: "#fff",
+    border: "1px solid #d1d5db",
+    borderRadius: 999,
+    color: "#111827",
+    cursor: "pointer",
+    display: "inline-flex",
+    height: 38,
+    justifyContent: "center",
+    position: "relative",
+    width: 38,
+  },
+  notificationBadge: {
+    alignItems: "center",
+    backgroundColor: "#dc2626",
+    border: "2px solid #fff",
+    borderRadius: 999,
+    color: "#fff",
+    display: "inline-flex",
+    fontSize: 11,
+    fontWeight: 800,
+    height: 19,
+    justifyContent: "center",
+    minWidth: 19,
+    padding: "0 4px",
+    position: "absolute",
+    right: -6,
+    top: -6,
+  },
+  notificationPanel: {
+    backgroundColor: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 8,
+    boxShadow: "0 18px 45px rgba(15, 23, 42, 0.18)",
+    maxHeight: 430,
+    overflow: "hidden",
+    position: "absolute",
+    right: 0,
+    top: 46,
+    width: 360,
+    zIndex: 30,
+  },
+  notificationHeader: {
+    alignItems: "center",
+    borderBottom: "1px solid #f3f4f6",
+    display: "flex",
+    justifyContent: "space-between",
+    padding: "12px 14px",
+  },
+  notificationReadAll: {
+    alignItems: "center",
+    backgroundColor: "transparent",
+    border: "none",
+    color: "#047857",
+    cursor: "pointer",
+    display: "inline-flex",
+    fontSize: 12,
+    fontWeight: 800,
+    gap: 5,
+  },
+  notificationEmpty: {
+    color: "#6b7280",
+    margin: 0,
+    padding: 18,
+    textAlign: "center",
+  },
+  notificationList: {
+    maxHeight: 370,
+    overflowY: "auto",
+  },
+  notificationItem: {
+    backgroundColor: "#fff",
+    border: "none",
+    borderBottom: "1px solid #f3f4f6",
+    color: "#111827",
+    cursor: "pointer",
+    display: "grid",
+    gap: 8,
+    gridTemplateColumns: "12px minmax(0, 1fr)",
+    padding: "12px 14px",
+    textAlign: "left",
+    width: "100%",
+  },
+  notificationItemUnread: {
+    backgroundColor: "#f0fdf4",
+  },
+  notificationDotWrap: {
+    paddingTop: 6,
+  },
+  notificationDot: {
+    backgroundColor: "#16a34a",
+    borderRadius: 999,
+    display: "block",
+    height: 8,
+    width: 8,
+  },
+  notificationContent: {
+    display: "grid",
+    gap: 4,
   },
   notice: {
     backgroundColor: "#e6f6f1",

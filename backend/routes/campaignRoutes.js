@@ -5,6 +5,7 @@ const upload = require("../middleware/upload");
 
 router.post("/", auth, isOrganization, campaign.createCampaign);
 router.get("/pending", auth, isAdmin, campaign.getPendingCampaigns);
+router.get("/my", auth, isOrganization, campaign.getMyCampaigns);
 router.get("/my-approved", auth, isOrganization, campaign.getMyApprovedCampaigns);
 router.get("/contributions/pending", auth, isOrganization, campaign.getPendingContributions);
 router.put("/contributions/:contributionId/confirm", auth, isOrganization, campaign.confirmContribution);
