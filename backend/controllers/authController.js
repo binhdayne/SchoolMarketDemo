@@ -1,6 +1,7 @@
 const db = require("../config/db");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const { createNotification } = require("./notificationController");
 
 const promiseDb = db.promise();
 const JWT_SECRET = "secret";
@@ -29,6 +30,7 @@ const memberColumns = `
     vai_tro,
     trang_thai,
     ly_do_cam,
+    ly_do_tu_choi,
     so_tien_phi_no
 `;
 
@@ -40,7 +42,8 @@ const organizationColumns = `
     dia_chi,
     mo_ta,
     trang_thai,
-    ly_do_cam
+    ly_do_cam,
+    ly_do_tu_choi
 `;
 
 async function isIdentifierTaken(email, sdt) {
@@ -68,6 +71,7 @@ function getBannedMessage(accountType, reason) {
 
 let organizationAvatarColumnReady = false;
 let memberBankQrColumnReady = false;
+let accountReviewColumnsReady = false;
 
 async function ensureOrganizationAvatarColumn() {
     if (organizationAvatarColumnReady) return;
@@ -91,6 +95,27 @@ async function ensureMemberBankQrColumn() {
     memberBankQrColumnReady = true;
 }
 
+async function ensureAccountReviewColumns() {
+    if (accountReviewColumnsReady) return;
+
+    const statements = [
+        "ALTER TABLE thanh_vien ADD COLUMN ly_do_tu_choi TEXT NULL AFTER ly_do_cam",
+        "ALTER TABLE to_chuc ADD COLUMN ly_do_tu_choi TEXT NULL AFTER ly_do_cam"
+    ];
+
+    for (const statement of statements) {
+        try {
+            await promiseDb.query(statement);
+        } catch (err) {
+            if (err.code !== "ER_DUP_FIELDNAME") {
+                throw err;
+            }
+        }
+    }
+
+    accountReviewColumnsReady = true;
+}
+
 function toMemberUser(member) {
     return {
         id: member.ma_thanh_vien,
@@ -106,7 +131,8 @@ function toMemberUser(member) {
         vai_tro: member.vai_tro || ACCOUNT_TYPE.MEMBER,
         loai_tai_khoan: ACCOUNT_TYPE.MEMBER,
         trang_thai: member.trang_thai,
-        ly_do_cam: member.ly_do_cam
+        ly_do_cam: member.ly_do_cam,
+        ly_do_tu_choi: member.ly_do_tu_choi
     };
 }
 
@@ -122,7 +148,8 @@ function toOrganizationUser(organization) {
         vai_tro: ACCOUNT_TYPE.ORGANIZATION,
         loai_tai_khoan: ACCOUNT_TYPE.ORGANIZATION,
         trang_thai: organization.trang_thai,
-        ly_do_cam: organization.ly_do_cam
+        ly_do_cam: organization.ly_do_cam,
+        ly_do_tu_choi: organization.ly_do_tu_choi
     };
 }
 
@@ -136,6 +163,8 @@ exports.register = async (req, res) => {
     }
 
     try {
+        await ensureAccountReviewColumns();
+
         if (await isIdentifierTaken(email, sdt)) {
             return res.status(409).json({ message: "Email hoặc số điện thoại đã được đăng ký" });
         }
@@ -193,6 +222,8 @@ exports.login = async (req, res) => {
     }
 
     try {
+        await ensureAccountReviewColumns();
+
         const [admins] = await promiseDb.query(
             "SELECT * FROM nguoi_kiem_duyet WHERE email = ? LIMIT 1",
             [identifier]
@@ -249,6 +280,15 @@ exports.login = async (req, res) => {
                 });
             }
 
+            if (member.trang_thai === USER_STATUS.REJECTED) {
+                return res.status(403).json({
+                    message: `Tài khoản thành viên đã bị từ chối. Lý do: ${member.ly_do_tu_choi || "Không có lý do cụ thể."}`,
+                    trang_thai: USER_STATUS.REJECTED,
+                    ly_do_tu_choi: member.ly_do_tu_choi,
+                    loai_tai_khoan: ACCOUNT_TYPE.MEMBER
+                });
+            }
+
             if (member.trang_thai !== USER_STATUS.APPROVED) {
                 return res.status(403).json({ message: "Tài khoản chưa được duyệt" });
             }
@@ -293,6 +333,15 @@ exports.login = async (req, res) => {
             });
         }
 
+        if (organization.trang_thai === USER_STATUS.REJECTED) {
+            return res.status(403).json({
+                message: `Tài khoản tổ chức đã bị từ chối. Lý do: ${organization.ly_do_tu_choi || "Không có lý do cụ thể."}`,
+                trang_thai: USER_STATUS.REJECTED,
+                ly_do_tu_choi: organization.ly_do_tu_choi,
+                loai_tai_khoan: ACCOUNT_TYPE.ORGANIZATION
+            });
+        }
+
         if (organization.trang_thai !== USER_STATUS.APPROVED) {
             return res.status(403).json({ message: "Tài khoản chưa được duyệt" });
         }
@@ -315,6 +364,8 @@ exports.login = async (req, res) => {
 
 exports.getPendingAccounts = async (req, res) => {
     try {
+        await ensureAccountReviewColumns();
+
         const [members] = await promiseDb.query(
             `SELECT ${memberColumns}
              FROM thanh_vien
@@ -351,6 +402,8 @@ exports.getPendingAccounts = async (req, res) => {
 
 exports.getPendingUsers = async (req, res) => {
     try {
+        await ensureAccountReviewColumns();
+
         const [members] = await promiseDb.query(
             `SELECT ${memberColumns}
              FROM thanh_vien
@@ -367,6 +420,7 @@ exports.getPendingUsers = async (req, res) => {
 
 exports.getMembers = async (req, res) => {
     try {
+        await ensureAccountReviewColumns();
         await ensureMemberBankQrColumn();
 
         const [members] = await promiseDb.query(
@@ -383,6 +437,8 @@ exports.getMembers = async (req, res) => {
 
 exports.getOrganizations = async (req, res) => {
     try {
+        await ensureAccountReviewColumns();
+
         const [organizations] = await promiseDb.query(
             `SELECT ${organizationColumns}
              FROM to_chuc
@@ -404,6 +460,7 @@ exports.getMemberProfile = async (req, res) => {
     }
 
     try {
+        await ensureAccountReviewColumns();
         await ensureMemberBankQrColumn();
 
         const [members] = await promiseDb.query(
@@ -434,6 +491,7 @@ exports.updateMemberProfile = async (req, res) => {
     }
 
     try {
+        await ensureAccountReviewColumns();
         await ensureMemberBankQrColumn();
 
         const [result] = await promiseDb.query(
@@ -483,6 +541,7 @@ exports.updateOrganizationProfile = async (req, res) => {
     }
 
     try {
+        await ensureAccountReviewColumns();
         await ensureOrganizationAvatarColumn();
 
         const [result] = await promiseDb.query(
@@ -513,6 +572,7 @@ exports.updateOrganizationProfile = async (req, res) => {
 exports.updateAccountStatus = async (req, res) => {
     const { type, id } = req.params;
     const nextStatus = req.action === "approve" ? USER_STATUS.APPROVED : USER_STATUS.REJECTED;
+    const rejectionReason = String(req.body?.ly_do_tu_choi || req.body?.reason || "").trim();
     const table = type === ACCOUNT_TYPE.ORGANIZATION ? "to_chuc" : "thanh_vien";
     const idColumn = type === ACCOUNT_TYPE.ORGANIZATION ? "ma_to_chuc" : "ma_thanh_vien";
 
@@ -520,18 +580,43 @@ exports.updateAccountStatus = async (req, res) => {
         return res.status(400).json({ message: "Loại tài khoản không hợp lệ" });
     }
 
+    if (req.action === "reject" && !rejectionReason) {
+        return res.status(400).json({ message: "Vui lòng nhập lý do từ chối tài khoản" });
+    }
+
     try {
+        await ensureAccountReviewColumns();
+
         const [result] = await promiseDb.query(
-            `UPDATE ${table} SET trang_thai = ?, ly_do_cam = NULL WHERE ${idColumn} = ?`,
-            [nextStatus, id]
+            `UPDATE ${table}
+             SET trang_thai = ?,
+                 ly_do_cam = NULL,
+                 ly_do_tu_choi = ?
+             WHERE ${idColumn} = ?`,
+            [nextStatus, req.action === "reject" ? rejectionReason : null, id]
         );
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "Không tìm thấy tài khoản" });
         }
 
+        await createNotification({
+            ma_thanh_vien: type === ACCOUNT_TYPE.MEMBER ? id : null,
+            ma_to_chuc: type === ACCOUNT_TYPE.ORGANIZATION ? id : null,
+            tieu_de: req.action === "approve" ? "Tài khoản đã được duyệt" : "Tài khoản bị từ chối",
+            noi_dung: req.action === "approve"
+                ? "Tài khoản của bạn đã được admin duyệt. Bạn có thể đăng nhập và sử dụng hệ thống."
+                : `Tài khoản của bạn bị từ chối. Lý do: ${rejectionReason}`,
+            loai_thong_bao: "duyet_tai_khoan",
+            duong_dan: null
+        }).catch((notificationErr) => {
+            console.error("Không thể tạo thông báo tài khoản:", notificationErr);
+        });
+
         res.json({
-            message: req.action === "approve" ? "Đã duyệt tài khoản" : "Đã từ chối tài khoản"
+            message: req.action === "approve" ? "Đã duyệt tài khoản" : "Đã từ chối tài khoản",
+            trang_thai: nextStatus,
+            ly_do_tu_choi: req.action === "reject" ? rejectionReason : null
         });
     } catch (err) {
         res.status(500).json({ message: "Không thể cập nhật tài khoản", error: err.message });

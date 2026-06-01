@@ -207,6 +207,17 @@
   gap: 14px;
 }
 
+.community-filter-bar {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-bottom: 18px;
+  padding: 14px;
+}
+
 .community-form-grid {
   display: grid;
   gap: 14px;
@@ -733,6 +744,17 @@
   margin: 0;
 }
 
+.my-activity-item .activity-rejection-reason {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  color: #991b1b;
+  font-weight: 700;
+  line-height: 1.4;
+  margin-top: 8px;
+  padding: 8px;
+}
+
 .activity-status {
   border-radius: 999px;
   display: inline-flex;
@@ -885,6 +907,7 @@
   }
 
   .activity-layout,
+  .community-filter-bar,
   .community-form-grid,
   .contribution-layout,
   .event-detail-card,

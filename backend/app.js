@@ -21,6 +21,7 @@ app.use("/api/campaigns", require("./routes/campaignRoutes"));
 app.use('/api/products', require('./routes/productRoutes'));
 app.use('/api/dashboard', require('./routes/dashboardRoutes'));
 app.use('/api/complaints', require('./routes/complaintRoutes'));
+app.use('/api/notifications', require('./routes/notificationRoutes'));
 
 app.use((err, req, res, next) => {
     if (err?.name === 'MulterError') {

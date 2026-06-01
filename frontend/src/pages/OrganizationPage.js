@@ -60,7 +60,9 @@ function OrganizationPage({
   const [productMessage, setProductMessage] = useState("");
   const [productError, setProductError] = useState("");
   const [approvedEvents, setApprovedEvents] = useState([]);
+  const [reviewEvents, setReviewEvents] = useState([]);
   const [loadingApprovedEvents, setLoadingApprovedEvents] = useState(false);
+  const [loadingReviewEvents, setLoadingReviewEvents] = useState(false);
   const [approvedEventsMessage, setApprovedEventsMessage] = useState("");
   const [approvedEventsError, setApprovedEventsError] = useState("");
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -112,6 +114,24 @@ function OrganizationPage({
       return [];
     } finally {
       setLoadingApprovedEvents(false);
+    }
+  }, [token]);
+
+  const loadReviewEvents = useCallback(async () => {
+    if (!token) return;
+
+    setLoadingReviewEvents(true);
+
+    try {
+      const res = await axios.get(`${API}/campaigns/my`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const nextEvents = Array.isArray(res.data) ? res.data : [];
+      setReviewEvents(nextEvents.filter((event) => event.trang_thai !== "da_duyet"));
+    } catch {
+      setReviewEvents([]);
+    } finally {
+      setLoadingReviewEvents(false);
     }
   }, [token]);
 
@@ -195,10 +215,11 @@ function OrganizationPage({
   useEffect(() => {
     loadCategories();
     loadApprovedEvents();
+    loadReviewEvents();
     loadPendingContributions();
     loadDonationSales();
     loadSellerPayouts();
-  }, [loadCategories, loadApprovedEvents, loadPendingContributions, loadDonationSales, loadSellerPayouts]);
+  }, [loadCategories, loadApprovedEvents, loadReviewEvents, loadPendingContributions, loadDonationSales, loadSellerPayouts]);
 
   useEffect(() => {
     if (selectedEvent?.hinh_thuc_quyen_gop !== "ban_do_quyen_gop") {
@@ -422,6 +443,7 @@ function OrganizationPage({
       setEventForm(initialEventForm);
       resetEventProductForm();
       setEventMessage(`${res.data.message || "Đã tạo sự kiện quyên góp."}${productNotice}`);
+      loadReviewEvents();
       loadPendingContributions();
     } catch (err) {
       setEventError(err.response?.data?.message || "Không thể tạo sự kiện quyên góp.");
@@ -444,6 +466,9 @@ function OrganizationPage({
       });
 
       setApprovedEvents((currentEvents) =>
+        currentEvents.filter((item) => item.ma_hoat_dong !== event.ma_hoat_dong)
+      );
+      setReviewEvents((currentEvents) =>
         currentEvents.filter((item) => item.ma_hoat_dong !== event.ma_hoat_dong)
       );
       setApprovedEventsMessage(res.data.message || "Đã xóa sự kiện.");
@@ -684,6 +709,13 @@ function OrganizationPage({
             onAddProduct={handleOpenEventProductCreator}
           />
 
+          <OrganizationReviewEventsSection
+            events={reviewEvents}
+            loading={loadingReviewEvents}
+            deletingEventId={deletingEventId}
+            onDeleteEvent={handleDeleteEvent}
+          />
+
           <OrganizationContributionRequests
             contributions={pendingContributions}
             loading={loadingContributions}
@@ -811,6 +843,62 @@ function OrganizationEventsSection({
             </div>
           )}
         </>
+      )}
+    </section>
+  );
+}
+
+function OrganizationReviewEventsSection({
+  events,
+  loading,
+  deletingEventId,
+  onDeleteEvent,
+}) {
+  return (
+    <section style={styles.eventsSection} aria-label="Sự kiện đang chờ duyệt hoặc bị từ chối">
+      <div style={styles.sectionHeader}>
+        <div>
+          <h2 style={styles.sectionTitle}>Sự kiện chờ duyệt / bị từ chối</h2>
+          <p style={styles.sectionDescription}>Theo dõi trạng thái các sự kiện chưa được admin duyệt.</p>
+        </div>
+      </div>
+
+      {loading ? (
+        <p style={styles.emptyText}>Đang tải sự kiện...</p>
+      ) : events.length === 0 ? (
+        <p style={styles.emptyText}>Không có sự kiện nào đang chờ duyệt hoặc bị từ chối.</p>
+      ) : (
+        <div style={styles.eventCards}>
+          {events.map((event) => (
+            <article key={event.ma_hoat_dong} style={styles.eventCard}>
+              <div style={styles.eventCardPreviewStatic}>
+                <img src={event.anh_minh_hoa || DEFAULT_ORGANIZATION_AVATAR} alt="" style={styles.eventCardImage} />
+                <div style={styles.eventCardBody}>
+                  <span style={getProductStatusStyle(event.trang_thai)}>
+                    {getProductStatusLabel(event.trang_thai)}
+                  </span>
+                  <h3 style={styles.eventCardTitle}>{event.ten_hoat_dong}</h3>
+                  <p style={styles.eventCardText}>{event.mo_ta}</p>
+                  {event.trang_thai === "tu_choi" && event.ly_do_tu_choi && (
+                    <p style={styles.rejectionReason}>
+                      Lý do từ chối: {event.ly_do_tu_choi}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div style={styles.eventCardActions}>
+                <button
+                  type="button"
+                  onClick={() => onDeleteEvent(event)}
+                  style={styles.deleteButton}
+                  disabled={deletingEventId === event.ma_hoat_dong}
+                >
+                  {deletingEventId === event.ma_hoat_dong ? "Đang xóa..." : "Xóa sự kiện"}
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
       )}
     </section>
   );
@@ -1953,6 +2041,11 @@ const styles = {
     textAlign: "left",
     width: "100%",
   },
+  eventCardPreviewStatic: {
+    display: "flex",
+    flexDirection: "column",
+    width: "100%",
+  },
   eventCardImage: {
     aspectRatio: "16 / 9",
     objectFit: "cover",
@@ -1971,6 +2064,16 @@ const styles = {
     color: "#4b5563",
     lineHeight: 1.45,
     margin: 0,
+  },
+  rejectionReason: {
+    backgroundColor: "#fef2f2",
+    border: "1px solid #fecaca",
+    borderRadius: 8,
+    color: "#991b1b",
+    fontWeight: 700,
+    lineHeight: 1.45,
+    margin: 0,
+    padding: 10,
   },
   eventCardActions: {
     borderTop: "1px solid #f3f4f6",

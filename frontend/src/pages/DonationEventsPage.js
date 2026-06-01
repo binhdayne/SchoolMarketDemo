@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import {
   LuArrowLeft,
@@ -265,6 +265,9 @@ export default function DonationEventsPage({
   onBuyProductClick,
 }) {
   const [events, setEvents] = useState([]);
+  const [eventSearchTerm, setEventSearchTerm] = useState("");
+  const [eventTypeFilter, setEventTypeFilter] = useState("all");
+  const [eventStatusFilter, setEventStatusFilter] = useState("all");
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -376,6 +379,26 @@ export default function DonationEventsPage({
     setProductPreview(previewUrl);
     return () => URL.revokeObjectURL(previewUrl);
   }, [productFile]);
+
+  const filteredEvents = useMemo(() => {
+    const keyword = eventSearchTerm.trim().toLowerCase();
+
+    return events.filter((event) => {
+      const matchesType = eventTypeFilter === "all" || event.hinh_thuc_quyen_gop === eventTypeFilter;
+      const matchesStatus = eventStatusFilter === "all" || event.trang_thai === eventStatusFilter;
+      if (!matchesType) return false;
+      if (!matchesStatus) return false;
+      if (!keyword) return true;
+
+      return [
+        event.ten_hoat_dong,
+        event.ten_to_chuc,
+        event.mo_ta,
+        event.dia_diem,
+        getDonationTypeLabel(event.hinh_thuc_quyen_gop),
+      ].some((value) => String(value || "").toLowerCase().includes(keyword));
+    });
+  }, [eventSearchTerm, eventStatusFilter, eventTypeFilter, events]);
 
   const refreshCampaignProducts = async (campaignId) => {
     try {
@@ -1152,8 +1175,44 @@ export default function DonationEventsPage({
         <div className="community-section-header">
           <div>
             <h3 className="community-section-title">Danh sách sự kiện</h3>
-            <p className="community-section-description">{events.length} sự kiện đang hiển thị</p>
+            <p className="community-section-description">{filteredEvents.length} / {events.length} sự kiện đang hiển thị</p>
           </div>
+        </div>
+
+        <div className="community-filter-bar">
+          <label className="community-field">
+            <span className="community-label">Tìm kiếm</span>
+            <input
+              className="community-input"
+              value={eventSearchTerm}
+              onChange={(event) => setEventSearchTerm(event.target.value)}
+              placeholder="Tên sự kiện, tổ chức, địa điểm..."
+            />
+          </label>
+          <label className="community-field">
+            <span className="community-label">Hình thức quyên góp</span>
+            <select
+              className="community-select"
+              value={eventTypeFilter}
+              onChange={(event) => setEventTypeFilter(event.target.value)}
+            >
+              <option value="all">Tất cả hình thức</option>
+              <option value="nhan_tien_chuyen_khoan">Nhận tiền chuyển khoản</option>
+              <option value="ban_do_quyen_gop">Bán đồ quyên góp</option>
+              <option value="nhan_do_vat">Nhận đồ vật</option>
+            </select>
+          </label>
+          <label className="community-field">
+            <span className="community-label">Trạng thái</span>
+            <select
+              className="community-select"
+              value={eventStatusFilter}
+              onChange={(event) => setEventStatusFilter(event.target.value)}
+            >
+              <option value="all">Tất cả trạng thái</option>
+              <option value="da_duyet">Đã duyệt</option>
+            </select>
+          </label>
         </div>
 
         {loading ? (
@@ -1162,9 +1221,11 @@ export default function DonationEventsPage({
           <p className="community-alert error">{error}</p>
         ) : events.length === 0 ? (
           <p className="community-empty">Chưa có sự kiện quyên góp nào được duyệt.</p>
+        ) : filteredEvents.length === 0 ? (
+          <p className="community-empty">Không có sự kiện phù hợp với bộ lọc.</p>
         ) : (
           <div className="event-summary-list">
-            {events.map((event) => (
+            {filteredEvents.map((event) => (
               <button
                 type="button"
                 key={event.ma_hoat_dong}

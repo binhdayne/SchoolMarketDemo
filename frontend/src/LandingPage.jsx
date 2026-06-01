@@ -83,6 +83,7 @@ export default function LandingPage({
   onAccountClick,
   onBuyProductClick,
   onLogout,
+  notificationSlot,
 }) {
   const [stats, setStats] = useState(DEFAULT_STATS);
   const [categories, setCategories] = useState([]);
@@ -90,6 +91,7 @@ export default function LandingPage({
   const [activityPosts, setActivityPosts] = useState([]);
   const [activeCategory, setActiveCategory] = useState('all');
   const [productMode, setProductMode] = useState('all');
+  const [productStatusFilter, setProductStatusFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadingActivityPosts, setLoadingActivityPosts] = useState(true);
@@ -182,9 +184,12 @@ export default function LandingPage({
           : !isDonationProduct(product));
       const matchesCategory =
         activeCategory === 'all' || Number(product.ma_danh_muc) === Number(activeCategory);
+      const matchesStatus =
+        productStatusFilter === 'all' || product.trang_thai === productStatusFilter;
 
       if (!matchesProductMode) return false;
       if (!matchesCategory) return false;
+      if (!matchesStatus) return false;
       if (!keyword) return true;
 
       return [
@@ -192,9 +197,12 @@ export default function LandingPage({
         product.mo_ta,
         product.tinh_trang,
         product.ten_danh_muc,
+        product.ten_nguoi_dang,
+        product.ten_to_chuc_dang,
+        product.ten_hoat_dong,
       ].some((value) => String(value || '').toLowerCase().includes(keyword));
     });
-  }, [activeCategory, productMode, products, searchTerm]);
+  }, [activeCategory, productMode, productStatusFilter, products, searchTerm]);
 
   const updateBuyQuantity = (nextValue) => {
     const maxQuantity = Math.max(1, selectedBuyStock);
@@ -379,6 +387,7 @@ export default function LandingPage({
           <div className="nav-actions">
             {isAuthenticated ? (
               <>
+                {notificationSlot}
                 <button type="button" className="nav-user nav-user-button" onClick={onAccountClick}>
                   <span className="nav-user-name">{displayName}</span>
                   <span className="nav-user-role">{roleLabel}</span>
@@ -455,6 +464,35 @@ export default function LandingPage({
             />
           </div>
           <button type="button" className="btn-filter"><LuFilter size={18} /> Lọc</button>
+        </div>
+
+        <div className="advanced-filter-row">
+          <label>
+            <span>Danh mục</span>
+            <select value={activeCategory} onChange={(event) => setActiveCategory(event.target.value)}>
+              <option value="all">Tất cả danh mục</option>
+              {categories.map((category) => (
+                <option key={category.ma_danh_muc} value={category.ma_danh_muc}>
+                  {category.ten_danh_muc}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Trạng thái</span>
+            <select value={productStatusFilter} onChange={(event) => setProductStatusFilter(event.target.value)}>
+              <option value="all">Tất cả trạng thái</option>
+              <option value="da_duyet">Đã duyệt</option>
+            </select>
+          </label>
+          <label>
+            <span>Tìm người đăng / tổ chức</span>
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Tên người bán, tổ chức, sản phẩm..."
+            />
+          </label>
         </div>
       </section>
 
@@ -555,6 +593,7 @@ export default function LandingPage({
                   <div className="product-meta">
                     <span>{product.ten_danh_muc || 'Chưa phân loại'}</span>
                     <span>Số lượng: {formatNumber(product.so_luong || 0)}</span>
+                    <span>Người đăng: {product.ten_nguoi_dang || 'Chưa cập nhật'}</span>
                   </div>
                   <button
                     type="button"

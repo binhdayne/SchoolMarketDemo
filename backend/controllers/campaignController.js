@@ -1,6 +1,15 @@
 const db = require("../config/db");
+const { createNotification } = require("./notificationController");
 
 const promiseDb = db.promise();
+
+async function notifySafely(payload) {
+    try {
+        await createNotification(payload);
+    } catch (err) {
+        console.error("Không thể tạo thông báo sự kiện:", err);
+    }
+}
 
 const CAMPAIGN_STATUS = {
     PENDING: "cho_duyet",
@@ -78,6 +87,16 @@ async function ensureCampaignExtraColumns() {
         }
     }
 
+    try {
+        await promiseDb.query(
+            "ALTER TABLE hoat_dong_quyen_gop ADD COLUMN ly_do_tu_choi TEXT NULL AFTER trang_thai"
+        );
+    } catch (err) {
+        if (err.code !== "ER_DUP_FIELDNAME") {
+            throw err;
+        }
+    }
+
     await promiseDb.query(`
         CREATE TABLE IF NOT EXISTS dong_gop_su_kien (
             ma_dong_gop INT AUTO_INCREMENT PRIMARY KEY,
@@ -135,6 +154,7 @@ function getCampaignSelectSql(whereClause = "") {
             hd.ngay_to_chuc,
             hd.dia_diem,
             hd.trang_thai,
+            hd.ly_do_tu_choi,
             hd.ma_to_chuc,
             hd.han_ket_thuc,
             hd.anh_minh_hoa,
@@ -339,6 +359,27 @@ exports.getMyApprovedCampaigns = async (req, res) => {
     }
 };
 
+exports.getMyCampaigns = async (req, res) => {
+    const ma_to_chuc = req.user?.id;
+
+    if (!ma_to_chuc) {
+        return res.status(401).json({ message: "Không xác định được tài khoản tổ chức" });
+    }
+
+    try {
+        await ensureCampaignExtraColumns();
+
+        const [campaigns] = await promiseDb.query(
+            getCampaignSelectSql("WHERE hd.ma_to_chuc = ?"),
+            [ma_to_chuc]
+        );
+
+        res.json(await attachConfirmedDonors(campaigns));
+    } catch (err) {
+        res.status(500).json({ message: "Không thể lấy danh sách sự kiện của tổ chức", error: err.message });
+    }
+};
+
 exports.createCampaignContribution = async (req, res) => {
     const campaignId = req.params.id;
     const memberId = req.user?.id;
@@ -486,9 +527,11 @@ exports.confirmContribution = async (req, res) => {
         const [contributions] = await promiseDb.query(
             `SELECT
                 dg.ma_dong_gop,
+                dg.ma_thanh_vien,
                 dg.trang_thai,
                 dg.loai_dong_gop,
-                hd.so_tien_toi_thieu
+                hd.so_tien_toi_thieu,
+                hd.ten_hoat_dong
              FROM dong_gop_su_kien dg
              INNER JOIN hoat_dong_quyen_gop hd ON hd.ma_hoat_dong = dg.ma_hoat_dong
              WHERE dg.ma_dong_gop = ? AND hd.ma_to_chuc = ?
@@ -525,6 +568,16 @@ exports.confirmContribution = async (req, res) => {
              WHERE ma_dong_gop = ?`,
             [CONTRIBUTION_STATUS.CONFIRMED, TRANSFER_DONATION_TYPE, confirmedAmount, contributionId]
         );
+
+        await notifySafely({
+            ma_thanh_vien: contributions[0].ma_thanh_vien,
+            tieu_de: "Tổ chức đã xác nhận quyên góp",
+            noi_dung: contributions[0].loai_dong_gop === TRANSFER_DONATION_TYPE
+                ? `Khoản quyên góp ${confirmedAmount.toLocaleString("vi-VN")} đ cho sự kiện "${contributions[0].ten_hoat_dong}" đã được tổ chức xác nhận.`
+                : `Đóng góp cho sự kiện "${contributions[0].ten_hoat_dong}" đã được tổ chức xác nhận.`,
+            loai_thong_bao: "xac_nhan_quyen_gop",
+            duong_dan: "donations"
+        });
 
         res.json({
             message: "Đã xác nhận biên lai quyên góp",
@@ -570,22 +623,49 @@ exports.deleteOwnCampaign = async (req, res) => {
 exports.updateCampaignStatus = async (req, res) => {
     const { id } = req.params;
     const nextStatus = req.action === "approve" ? CAMPAIGN_STATUS.APPROVED : CAMPAIGN_STATUS.REJECTED;
+    const rejectionReason = String(req.body?.ly_do_tu_choi || req.body?.reason || "").trim();
+
+    if (req.action === "reject" && !rejectionReason) {
+        return res.status(400).json({ message: "Vui lòng nhập lý do từ chối sự kiện quyên góp" });
+    }
 
     try {
         await ensureCampaignExtraColumns();
 
+        const [campaigns] = await promiseDb.query(
+            "SELECT ma_hoat_dong, ten_hoat_dong, ma_to_chuc FROM hoat_dong_quyen_gop WHERE ma_hoat_dong = ? LIMIT 1",
+            [id]
+        );
+
+        if (campaigns.length === 0) {
+            return res.status(404).json({ message: "Không tìm thấy sự kiện quyên góp" });
+        }
+
+        const campaign = campaigns[0];
+
         const [result] = await promiseDb.query(
-            "UPDATE hoat_dong_quyen_gop SET trang_thai = ? WHERE ma_hoat_dong = ?",
-            [nextStatus, id]
+            "UPDATE hoat_dong_quyen_gop SET trang_thai = ?, ly_do_tu_choi = ? WHERE ma_hoat_dong = ?",
+            [nextStatus, req.action === "reject" ? rejectionReason : null, id]
         );
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "Không tìm thấy sự kiện quyên góp" });
         }
 
+        await notifySafely({
+            ma_to_chuc: campaign.ma_to_chuc,
+            tieu_de: req.action === "approve" ? "Sự kiện quyên góp đã được duyệt" : "Sự kiện quyên góp bị từ chối",
+            noi_dung: req.action === "approve"
+                ? `Sự kiện "${campaign.ten_hoat_dong}" đã được admin duyệt và hiển thị trên hệ thống.`
+                : `Admin yêu cầu chỉnh sửa sự kiện "${campaign.ten_hoat_dong}". Lý do: ${rejectionReason}`,
+            loai_thong_bao: "duyet_su_kien",
+            duong_dan: "dashboard"
+        });
+
         res.json({
             message: req.action === "approve" ? "Đã duyệt sự kiện quyên góp" : "Đã từ chối sự kiện quyên góp",
-            trang_thai: nextStatus
+            trang_thai: nextStatus,
+            ly_do_tu_choi: req.action === "reject" ? rejectionReason : null
         });
     } catch (err) {
         res.status(500).json({ message: "Không thể cập nhật trạng thái sự kiện", error: err.message });
