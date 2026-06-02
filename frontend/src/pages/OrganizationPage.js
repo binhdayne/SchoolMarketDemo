@@ -75,6 +75,7 @@ function OrganizationPage({
   const [contributionMessage, setContributionMessage] = useState("");
   const [contributionError, setContributionError] = useState("");
   const [confirmingContributionId, setConfirmingContributionId] = useState(null);
+  const [cancellingContributionId, setCancellingContributionId] = useState(null);
   const [donationSales, setDonationSales] = useState([]);
   const [loadingDonationSales, setLoadingDonationSales] = useState(false);
   const [donationSalesMessage, setDonationSalesMessage] = useState("");
@@ -147,7 +148,7 @@ function OrganizationPage({
       });
       setPendingContributions(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      setContributionError(err.response?.data?.message || "Không thể tải biên lai chờ xác nhận.");
+      setContributionError(err.response?.data?.message || "Không thể tải danh sách quyên góp chờ xác nhận.");
     } finally {
       setLoadingContributions(false);
     }
@@ -536,20 +537,26 @@ function OrganizationPage({
   };
 
   const handleConfirmContribution = async (contribution) => {
-    const rawAmount = window.prompt(
-      `Nhập số tiền quyên góp thực nhận của ${contribution.ho_ten || "thành viên"}:`,
-      String(Number(contribution.so_tien || 0))
-    );
-    if (rawAmount === null) return;
+    const isItemContribution = contribution.loai_dong_gop === "nhan_do_vat";
+    let confirmedAmount = 0;
 
-    const confirmedAmount = parseCurrencyInput(rawAmount);
-    if (!Number.isFinite(confirmedAmount) || confirmedAmount <= 0) {
-      setContributionError("Vui lòng nhập số tiền quyên góp hợp lệ.");
-      return;
+    if (!isItemContribution) {
+      const rawAmount = window.prompt(
+        `Nhập số tiền quyên góp thực nhận của ${contribution.ho_ten || "thành viên"}:`,
+        String(Number(contribution.so_tien || 0))
+      );
+      if (rawAmount === null) return;
+
+      confirmedAmount = parseCurrencyInput(rawAmount);
+      if (!Number.isFinite(confirmedAmount) || confirmedAmount <= 0) {
+        setContributionError("Vui lòng nhập số tiền quyên góp hợp lệ.");
+        return;
+      }
     }
 
-    const ok = window.confirm(
-      `Xác nhận biên lai của ${contribution.ho_ten} với số tiền ${formatCurrency(confirmedAmount)}?`
+    const ok = window.confirm(isItemContribution
+      ? `Xác nhận đã nhận "${contribution.ten_do_vat || "đồ vật"}" từ ${contribution.ho_ten || "thành viên"}?`
+      : `Xác nhận biên lai của ${contribution.ho_ten} với số tiền ${formatCurrency(confirmedAmount)}?`
     );
     if (!ok) return;
 
@@ -560,11 +567,11 @@ function OrganizationPage({
     try {
       const res = await axios.put(
         `${API}/campaigns/contributions/${contribution.ma_dong_gop}/confirm`,
-        { so_tien: confirmedAmount },
+        isItemContribution ? {} : { so_tien: confirmedAmount },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      setContributionMessage(res.data.message || "Đã xác nhận biên lai quyên góp.");
+      setContributionMessage(res.data.message || (isItemContribution ? "Đã xác nhận nhận đồ vật quyên góp." : "Đã xác nhận biên lai quyên góp."));
       setPendingContributions((currentContributions) =>
         currentContributions.filter((item) => item.ma_dong_gop !== contribution.ma_dong_gop)
       );
@@ -577,6 +584,36 @@ function OrganizationPage({
       setContributionError(err.response?.data?.message || "Không thể xác nhận biên lai.");
     } finally {
       setConfirmingContributionId(null);
+    }
+  };
+
+  const handleCancelContribution = async (contribution) => {
+    const isItemContribution = contribution.loai_dong_gop === "nhan_do_vat";
+    const ok = window.confirm(isItemContribution
+      ? `Hủy đăng ký quyên góp "${contribution.ten_do_vat || "đồ vật"}" của ${contribution.ho_ten || "thành viên"}?`
+      : `Hủy biên lai quyên góp của ${contribution.ho_ten || "thành viên"}?`
+    );
+    if (!ok) return;
+
+    setCancellingContributionId(contribution.ma_dong_gop);
+    setContributionMessage("");
+    setContributionError("");
+
+    try {
+      const res = await axios.put(
+        `${API}/campaigns/contributions/${contribution.ma_dong_gop}/cancel`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setContributionMessage(res.data.message || "Đã hủy đăng ký quyên góp.");
+      setPendingContributions((currentContributions) =>
+        currentContributions.filter((item) => item.ma_dong_gop !== contribution.ma_dong_gop)
+      );
+    } catch (err) {
+      setContributionError(err.response?.data?.message || "Không thể hủy đăng ký quyên góp.");
+    } finally {
+      setCancellingContributionId(null);
     }
   };
 
@@ -722,7 +759,9 @@ function OrganizationPage({
             message={contributionMessage}
             error={contributionError}
             confirmingContributionId={confirmingContributionId}
+            cancellingContributionId={cancellingContributionId}
             onConfirmContribution={handleConfirmContribution}
+            onCancelContribution={handleCancelContribution}
           />
 
           <OrganizationDonationSaleRequests
@@ -910,14 +949,16 @@ function OrganizationContributionRequests({
   message,
   error,
   confirmingContributionId,
+  cancellingContributionId,
   onConfirmContribution,
+  onCancelContribution,
 }) {
   return (
-    <section style={styles.eventsSection} aria-label="Biên lai quyên góp chờ xác nhận">
+    <section style={styles.eventsSection} aria-label="Quyên góp chờ xác nhận">
       <div style={styles.sectionHeader}>
         <div>
-          <h2 style={styles.sectionTitle}>Biên lai chờ xác nhận</h2>
-          <p style={styles.sectionDescription}>Thành viên gửi biên lai chuyển khoản cho sự kiện nhận tiền.</p>
+          <h2 style={styles.sectionTitle}>Quyên góp chờ xác nhận</h2>
+          <p style={styles.sectionDescription}>Biên lai chuyển khoản và đăng ký đồ vật chỉ hiển thị công khai sau khi tổ chức xác nhận.</p>
         </div>
       </div>
 
@@ -925,36 +966,65 @@ function OrganizationContributionRequests({
       {error && <p style={styles.errorMessage}>{error}</p>}
 
       {loading ? (
-        <p style={styles.emptyText}>Đang tải biên lai...</p>
+        <p style={styles.emptyText}>Đang tải danh sách chờ xác nhận...</p>
       ) : contributions.length === 0 ? (
-        <p style={styles.emptyText}>Chưa có biên lai nào đang chờ xác nhận.</p>
+        <p style={styles.emptyText}>Chưa có quyên góp nào đang chờ xác nhận.</p>
       ) : (
         <div style={styles.contributionCards}>
-          {contributions.map((contribution) => (
-            <article key={contribution.ma_dong_gop} style={styles.contributionCard}>
-              <img
-                src={getAssetUrl(contribution.anh_bien_lai)}
-                alt="Biên lai quyên góp"
-                style={styles.contributionReceipt}
-              />
-              <div style={styles.contributionBody}>
-                <h3 style={styles.eventCardTitle}>{contribution.ten_hoat_dong}</h3>
-                <p style={styles.eventCardText}>
-                  {contribution.ho_ten || "Thành viên"} - {contribution.lop || "Chưa cập nhật lớp"}
-                </p>
-                <p style={styles.eventCardText}>Số tiền thành viên nhập: {formatCurrency(contribution.so_tien)}</p>
-                {contribution.ghi_chu && <p style={styles.eventCardText}>Ghi chú: {contribution.ghi_chu}</p>}
-                <button
-                  type="button"
-                  onClick={() => onConfirmContribution(contribution)}
-                  style={styles.saveButton}
-                  disabled={confirmingContributionId === contribution.ma_dong_gop}
-                >
-                  {confirmingContributionId === contribution.ma_dong_gop ? "Đang xác nhận..." : "Xác nhận"}
-                </button>
-              </div>
-            </article>
-          ))}
+          {contributions.map((contribution) => {
+            const isItemContribution = contribution.loai_dong_gop === "nhan_do_vat";
+            const isConfirming = confirmingContributionId === contribution.ma_dong_gop;
+            const isCancelling = cancellingContributionId === contribution.ma_dong_gop;
+
+            return (
+              <article
+                key={contribution.ma_dong_gop}
+                style={isItemContribution ? styles.itemContributionCard : styles.contributionCard}
+              >
+                {!isItemContribution && (
+                  <img
+                    src={getAssetUrl(contribution.anh_bien_lai)}
+                    alt="Biên lai quyên góp"
+                    style={styles.contributionReceipt}
+                  />
+                )}
+                <div style={styles.contributionBody}>
+                  <h3 style={styles.eventCardTitle}>{contribution.ten_hoat_dong}</h3>
+                  <p style={styles.eventCardText}>
+                    Thành viên: <strong>{contribution.ho_ten || "Thành viên"}</strong>
+                  </p>
+                  <p style={styles.eventCardText}>Lớp: {contribution.lop || "Chưa cập nhật lớp"}</p>
+                  {isItemContribution ? (
+                    <>
+                      <p style={styles.eventCardText}>Sản phẩm: <strong>{contribution.ten_do_vat || "Chưa cập nhật"}</strong></p>
+                      <p style={styles.eventCardText}>Số lượng: {Number(contribution.so_luong_do_vat || 0)} món</p>
+                    </>
+                  ) : (
+                    <p style={styles.eventCardText}>Số tiền thành viên nhập: {formatCurrency(contribution.so_tien)}</p>
+                  )}
+                  {contribution.ghi_chu && <p style={styles.eventCardText}>Ghi chú: {contribution.ghi_chu}</p>}
+                  <div style={styles.contributionActions}>
+                    <button
+                      type="button"
+                      onClick={() => onConfirmContribution(contribution)}
+                      style={styles.saveButton}
+                      disabled={isConfirming || isCancelling}
+                    >
+                      {isConfirming ? "Đang xác nhận..." : isItemContribution ? "Xác nhận đã nhận" : "Xác nhận"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onCancelContribution(contribution)}
+                      style={styles.deleteButton}
+                      disabled={isConfirming || isCancelling}
+                    >
+                      {isCancelling ? "Đang hủy..." : "Hủy"}
+                    </button>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
     </section>
@@ -1237,8 +1307,14 @@ function EventDetailDialog({ event, products, loadingProducts, productsError, on
               <ul style={styles.donorList}>
                 {event.nguoi_quyen_gop.map((donor, index) => (
                   <li key={`${donor.ho_ten}-${donor.lop}-${index}`} style={styles.donorListItem}>
-                    <strong>{donor.ho_ten}</strong>
-                    <span>{donor.lop || "Chưa cập nhật lớp"}</span>
+                    <span style={styles.sellerInfo}>
+                      <strong>{donor.ho_ten}</strong>
+                      <small>{donor.lop || "Chưa cập nhật lớp"}</small>
+                    </span>
+                    <span>
+                      {donor.ten_do_vat || "Đồ vật"}
+                      {Number(donor.so_luong_do_vat || 0) > 0 ? ` - ${donor.so_luong_do_vat} món` : ""}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -2105,6 +2181,15 @@ const styles = {
     gridTemplateColumns: "140px minmax(0, 1fr)",
     padding: 14,
   },
+  itemContributionCard: {
+    backgroundColor: "#fff",
+    border: "1px solid #d1fae5",
+    borderRadius: 8,
+    display: "grid",
+    gap: 14,
+    gridTemplateColumns: "minmax(0, 1fr)",
+    padding: 14,
+  },
   contributionReceipt: {
     backgroundColor: "#f9fafb",
     border: "1px solid #e5e7eb",
@@ -2117,6 +2202,12 @@ const styles = {
     alignContent: "start",
     display: "grid",
     gap: 8,
+  },
+  contributionActions: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 4,
   },
   payoutCards: {
     display: "grid",

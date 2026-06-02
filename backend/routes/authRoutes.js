@@ -4,6 +4,7 @@ const { auth: authMiddleware, isAdmin, isOrganization } = require("../middleware
 
 router.post("/register", auth.register);
 router.post("/login", auth.login);
+router.get("/approved-organizations", auth.getApprovedOrganizations);
 router.get("/pending-accounts", authMiddleware, isAdmin, auth.getPendingAccounts);
 router.get("/members", authMiddleware, isAdmin, auth.getMembers);
 router.get("/organizations", authMiddleware, isAdmin, auth.getOrganizations);

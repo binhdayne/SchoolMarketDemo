@@ -19,7 +19,8 @@ const CAMPAIGN_STATUS = {
 
 const CONTRIBUTION_STATUS = {
     PENDING: "cho_xac_nhan",
-    CONFIRMED: "da_xac_nhan"
+    CONFIRMED: "da_xac_nhan",
+    CANCELED: "da_huy"
 };
 
 const DONATION_TYPES = [
@@ -103,9 +104,10 @@ async function ensureCampaignExtraColumns() {
             ma_hoat_dong INT NOT NULL,
             ma_thanh_vien INT NOT NULL,
             loai_dong_gop VARCHAR(50) DEFAULT 'nhan_tien_chuyen_khoan',
+            ten_do_vat VARCHAR(150),
             so_tien DECIMAL(12,2) NOT NULL,
             so_luong_do_vat INT DEFAULT 0,
-            anh_bien_lai LONGTEXT NOT NULL,
+            anh_bien_lai LONGTEXT,
             ghi_chu TEXT,
             trang_thai VARCHAR(50) DEFAULT 'cho_xac_nhan',
             ngay_gui DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -121,6 +123,7 @@ async function ensureCampaignExtraColumns() {
 
     const contributionColumnStatements = [
         "ALTER TABLE dong_gop_su_kien ADD COLUMN loai_dong_gop VARCHAR(50) DEFAULT 'nhan_tien_chuyen_khoan' AFTER ma_thanh_vien",
+        "ALTER TABLE dong_gop_su_kien ADD COLUMN ten_do_vat VARCHAR(150) NULL AFTER loai_dong_gop",
         "ALTER TABLE dong_gop_su_kien ADD COLUMN so_luong_do_vat INT DEFAULT 0 AFTER so_tien"
     ];
 
@@ -136,6 +139,7 @@ async function ensureCampaignExtraColumns() {
 
     await promiseDb.query("ALTER TABLE hoat_dong_quyen_gop MODIFY COLUMN anh_minh_hoa LONGTEXT NULL");
     await promiseDb.query("ALTER TABLE hoat_dong_quyen_gop MODIFY COLUMN ma_qr_quyen_gop LONGTEXT NULL");
+    await promiseDb.query("ALTER TABLE dong_gop_su_kien MODIFY COLUMN anh_bien_lai LONGTEXT NULL");
     await promiseDb.query("UPDATE dong_gop_su_kien SET loai_dong_gop = ? WHERE loai_dong_gop IS NULL OR loai_dong_gop = ''", [TRANSFER_DONATION_TYPE]);
     await promiseDb.query("UPDATE dong_gop_su_kien SET so_luong_do_vat = 0 WHERE so_luong_do_vat IS NULL");
     campaignExtraColumnsReady = true;
@@ -181,6 +185,7 @@ async function attachConfirmedDonors(campaigns) {
             dg.ma_hoat_dong,
             dg.ma_thanh_vien,
             dg.loai_dong_gop,
+            dg.ten_do_vat,
             dg.so_tien,
             dg.so_luong_do_vat,
             dg.anh_bien_lai,
@@ -204,6 +209,7 @@ async function attachConfirmedDonors(campaigns) {
             ho_ten: donor.ho_ten,
             lop: donor.lop,
             loai_dong_gop: donor.loai_dong_gop,
+            ten_do_vat: donor.ten_do_vat,
             so_tien: donor.so_tien,
             so_luong_do_vat: donor.so_luong_do_vat,
             anh_bien_lai: donor.anh_bien_lai,
@@ -386,14 +392,11 @@ exports.createCampaignContribution = async (req, res) => {
     const accountType = req.user?.accountType || req.user?.role;
     const so_tien = Number(req.body?.so_tien || 0);
     const so_luong_do_vat = parseInt(req.body?.so_luong_do_vat || "0", 10);
+    const ten_do_vat = String(req.body?.ten_do_vat || req.body?.ten_san_pham || "").trim();
     const ghi_chu = String(req.body?.ghi_chu || "").trim();
 
     if (accountType !== "thanh_vien") {
         return res.status(403).json({ message: "Chỉ thành viên mới có thể tham gia quyên góp" });
-    }
-
-    if (!req.file) {
-        return res.status(400).json({ message: "Vui lòng tải lên ảnh hoặc biên lai" });
     }
 
     try {
@@ -417,32 +420,41 @@ exports.createCampaignContribution = async (req, res) => {
             return res.status(409).json({ message: "Sự kiện này chưa sẵn sàng để tham gia" });
         }
 
-        const receiptPath = `/uploads/${req.file.filename}`;
+        const receiptPath = req.file ? `/uploads/${req.file.filename}` : null;
 
         if (campaign.hinh_thuc_quyen_gop === ITEM_DONATION_TYPE) {
+            if (!ten_do_vat) {
+                return res.status(400).json({ message: "Vui lòng nhập tên đồ vật quyên góp" });
+            }
+
             if (!Number.isInteger(so_luong_do_vat) || so_luong_do_vat <= 0) {
                 return res.status(400).json({ message: "Vui lòng nhập số lượng đồ vật hợp lệ" });
             }
 
             const [result] = await promiseDb.query(
                 `INSERT INTO dong_gop_su_kien
-                    (ma_hoat_dong, ma_thanh_vien, loai_dong_gop, so_tien, so_luong_do_vat, anh_bien_lai, ghi_chu, trang_thai, ngay_xac_nhan)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-                [campaignId, memberId, ITEM_DONATION_TYPE, 0, so_luong_do_vat, receiptPath, ghi_chu || null, CONTRIBUTION_STATUS.CONFIRMED]
+                    (ma_hoat_dong, ma_thanh_vien, loai_dong_gop, ten_do_vat, so_tien, so_luong_do_vat, anh_bien_lai, ghi_chu, trang_thai)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [campaignId, memberId, ITEM_DONATION_TYPE, ten_do_vat, 0, so_luong_do_vat, receiptPath, ghi_chu || null, CONTRIBUTION_STATUS.PENDING]
             );
 
             return res.status(201).json({
-                message: "Đã ghi nhận đồ vật quyên góp",
+                message: "Đã gửi đăng ký quyên góp đồ vật. Vui lòng chờ tổ chức xác nhận đã nhận đồ vật.",
                 ma_dong_gop: result.insertId,
                 loai_dong_gop: ITEM_DONATION_TYPE,
+                ten_do_vat,
                 so_luong_do_vat,
                 anh_bien_lai: receiptPath,
-                trang_thai: CONTRIBUTION_STATUS.CONFIRMED
+                trang_thai: CONTRIBUTION_STATUS.PENDING
             });
         }
 
         if (campaign.hinh_thuc_quyen_gop !== TRANSFER_DONATION_TYPE) {
             return res.status(409).json({ message: "Hình thức quyên góp này chưa được hỗ trợ" });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ message: "Vui lòng tải lên biên lai chuyển khoản" });
         }
 
         if (!Number.isFinite(so_tien) || so_tien <= 0) {
@@ -490,11 +502,15 @@ exports.getPendingContributions = async (req, res) => {
                 dg.ma_dong_gop,
                 dg.ma_hoat_dong,
                 dg.ma_thanh_vien,
+                dg.loai_dong_gop,
+                dg.ten_do_vat,
                 dg.so_tien,
+                dg.so_luong_do_vat,
                 dg.anh_bien_lai,
                 dg.ghi_chu,
                 dg.trang_thai,
                 dg.ngay_gui,
+                hd.hinh_thuc_quyen_gop,
                 hd.ten_hoat_dong,
                 tv.ho_ten,
                 tv.lop
@@ -530,6 +546,7 @@ exports.confirmContribution = async (req, res) => {
                 dg.ma_thanh_vien,
                 dg.trang_thai,
                 dg.loai_dong_gop,
+                dg.ten_do_vat,
                 hd.so_tien_toi_thieu,
                 hd.ten_hoat_dong
              FROM dong_gop_su_kien dg
@@ -580,12 +597,75 @@ exports.confirmContribution = async (req, res) => {
         });
 
         res.json({
-            message: "Đã xác nhận biên lai quyên góp",
+            message: contributions[0].loai_dong_gop === TRANSFER_DONATION_TYPE
+                ? "Đã xác nhận biên lai quyên góp"
+                : "Đã xác nhận tổ chức đã nhận đồ vật quyên góp",
             trang_thai: CONTRIBUTION_STATUS.CONFIRMED,
-            so_tien: confirmedAmount
+            so_tien: contributions[0].loai_dong_gop === TRANSFER_DONATION_TYPE ? confirmedAmount : 0
         });
     } catch (err) {
-        res.status(500).json({ message: "Không thể xác nhận biên lai", error: err.message });
+        res.status(500).json({ message: "Không thể xác nhận quyên góp", error: err.message });
+    }
+};
+
+exports.cancelContribution = async (req, res) => {
+    const organizationId = req.user?.id;
+    const { contributionId } = req.params;
+
+    if (!organizationId) {
+        return res.status(401).json({ message: "Không xác định được tài khoản tổ chức" });
+    }
+
+    try {
+        await ensureCampaignExtraColumns();
+
+        const [contributions] = await promiseDb.query(
+            `SELECT
+                dg.ma_dong_gop,
+                dg.ma_thanh_vien,
+                dg.trang_thai,
+                dg.loai_dong_gop,
+                dg.ten_do_vat,
+                hd.ten_hoat_dong
+             FROM dong_gop_su_kien dg
+             INNER JOIN hoat_dong_quyen_gop hd ON hd.ma_hoat_dong = dg.ma_hoat_dong
+             WHERE dg.ma_dong_gop = ? AND hd.ma_to_chuc = ?
+             LIMIT 1`,
+            [contributionId, organizationId]
+        );
+
+        if (contributions.length === 0) {
+            return res.status(404).json({ message: "Không tìm thấy đăng ký quyên góp thuộc tổ chức" });
+        }
+
+        if (contributions[0].trang_thai !== CONTRIBUTION_STATUS.PENDING) {
+            return res.status(409).json({ message: "Đăng ký này đã được xử lý" });
+        }
+
+        await promiseDb.query(
+            `UPDATE dong_gop_su_kien
+             SET trang_thai = ?,
+                 ngay_xac_nhan = NOW()
+             WHERE ma_dong_gop = ?`,
+            [CONTRIBUTION_STATUS.CANCELED, contributionId]
+        );
+
+        await notifySafely({
+            ma_thanh_vien: contributions[0].ma_thanh_vien,
+            tieu_de: "Tổ chức đã hủy đăng ký quyên góp",
+            noi_dung: contributions[0].loai_dong_gop === ITEM_DONATION_TYPE
+                ? `Đăng ký quyên góp "${contributions[0].ten_do_vat || "đồ vật"}" cho sự kiện "${contributions[0].ten_hoat_dong}" đã bị hủy.`
+                : `Biên lai quyên góp cho sự kiện "${contributions[0].ten_hoat_dong}" đã bị hủy.`,
+            loai_thong_bao: "huy_quyen_gop",
+            duong_dan: "donations"
+        });
+
+        res.json({
+            message: "Đã hủy đăng ký quyên góp",
+            trang_thai: CONTRIBUTION_STATUS.CANCELED
+        });
+    } catch (err) {
+        res.status(500).json({ message: "Không thể hủy đăng ký quyên góp", error: err.message });
     }
 };
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import {
-  LuSearch, LuFilter, LuHeart, LuShoppingBag, LuCalendar,
+  LuSearch, LuHeart, LuShoppingBag, LuCalendar,
   LuClock, LuChevronRight, LuTrendingUp, LuUsers, LuPackage, LuMessagesSquare,
   LuMinus, LuPlus, LuX, LuFlag
 } from 'react-icons/lu';
@@ -88,11 +88,14 @@ export default function LandingPage({
   const [stats, setStats] = useState(DEFAULT_STATS);
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
+  const [approvedOrganizations, setApprovedOrganizations] = useState([]);
+  const [approvedOrganizationsLoaded, setApprovedOrganizationsLoaded] = useState(false);
   const [activityPosts, setActivityPosts] = useState([]);
   const [activeCategory, setActiveCategory] = useState('all');
   const [productMode, setProductMode] = useState('all');
-  const [productStatusFilter, setProductStatusFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [organizationFilter, setOrganizationFilter] = useState('');
+  const [organizationFilterOpen, setOrganizationFilterOpen] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadingActivityPosts, setLoadingActivityPosts] = useState(true);
   const [selectedBuyProduct, setSelectedBuyProduct] = useState(null);
@@ -126,7 +129,8 @@ export default function LandingPage({
       axios.get(`${API}/products/public`),
       axios.get(`${API}/posts`),
       axios.get(`${API}/campaigns`),
-    ]).then(([statsResult, categoriesResult, productsResult, postsResult, campaignsResult]) => {
+      axios.get(`${API}/auth/approved-organizations`),
+    ]).then(([statsResult, categoriesResult, productsResult, postsResult, campaignsResult, organizationsResult]) => {
       if (!isMounted) return;
 
       if (statsResult.status === 'fulfilled') {
@@ -148,6 +152,11 @@ export default function LandingPage({
       if (campaignsResult.status === 'fulfilled') {
         const campaignList = Array.isArray(campaignsResult.value.data) ? campaignsResult.value.data : [];
         setDonationCampaigns(campaignList.filter((campaign) => campaign.hinh_thuc_quyen_gop === 'ban_do_quyen_gop'));
+      }
+
+      if (organizationsResult.status === 'fulfilled') {
+        setApprovedOrganizations(Array.isArray(organizationsResult.value.data) ? organizationsResult.value.data : []);
+        setApprovedOrganizationsLoaded(true);
       }
     }).finally(() => {
       if (isMounted) {
@@ -173,8 +182,34 @@ export default function LandingPage({
     return () => URL.revokeObjectURL(nextPreviewUrl);
   }, [postFile]);
 
+  const organizationOptions = useMemo(() => {
+    const seenNames = new Set();
+    const sourceNames = approvedOrganizationsLoaded
+      ? approvedOrganizations.map((organization) => organization.ten_to_chuc)
+      : products.map((product) => product.ten_to_chuc_dang);
+
+    return sourceNames
+      .map((name) => String(name || '').trim())
+      .filter((name) => {
+        const key = name.toLocaleLowerCase('vi');
+        if (!name || seenNames.has(key)) return false;
+        seenNames.add(key);
+        return true;
+      })
+      .sort((firstName, secondName) => firstName.localeCompare(secondName, 'vi'));
+  }, [approvedOrganizations, approvedOrganizationsLoaded, products]);
+
+  const visibleOrganizationOptions = useMemo(() => {
+    const keyword = organizationFilter.trim().toLocaleLowerCase('vi');
+
+    return organizationOptions
+      .filter((name) => !keyword || name.toLocaleLowerCase('vi').includes(keyword))
+      .slice(0, 8);
+  }, [organizationFilter, organizationOptions]);
+
   const filteredProducts = useMemo(() => {
-    const keyword = searchTerm.trim().toLowerCase();
+    const keyword = searchTerm.trim().toLocaleLowerCase('vi');
+    const organizationKeyword = organizationFilter.trim().toLocaleLowerCase('vi');
 
     return products.filter((product) => {
       const matchesProductMode =
@@ -184,12 +219,13 @@ export default function LandingPage({
           : !isDonationProduct(product));
       const matchesCategory =
         activeCategory === 'all' || Number(product.ma_danh_muc) === Number(activeCategory);
-      const matchesStatus =
-        productStatusFilter === 'all' || product.trang_thai === productStatusFilter;
+      const matchesOrganization =
+        !organizationKeyword ||
+        String(product.ten_to_chuc_dang || '').toLocaleLowerCase('vi').includes(organizationKeyword);
 
       if (!matchesProductMode) return false;
       if (!matchesCategory) return false;
-      if (!matchesStatus) return false;
+      if (!matchesOrganization) return false;
       if (!keyword) return true;
 
       return [
@@ -200,9 +236,9 @@ export default function LandingPage({
         product.ten_nguoi_dang,
         product.ten_to_chuc_dang,
         product.ten_hoat_dong,
-      ].some((value) => String(value || '').toLowerCase().includes(keyword));
+      ].some((value) => String(value || '').toLocaleLowerCase('vi').includes(keyword));
     });
-  }, [activeCategory, productMode, productStatusFilter, products, searchTerm]);
+  }, [activeCategory, organizationFilter, productMode, products, searchTerm]);
 
   const updateBuyQuantity = (nextValue) => {
     const maxQuantity = Math.max(1, selectedBuyStock);
@@ -463,35 +499,59 @@ export default function LandingPage({
               onChange={(event) => setSearchTerm(event.target.value)}
             />
           </div>
-          <button type="button" className="btn-filter"><LuFilter size={18} /> Lọc</button>
         </div>
 
-        <div className="advanced-filter-row">
-          <label>
-            <span>Danh mục</span>
-            <select value={activeCategory} onChange={(event) => setActiveCategory(event.target.value)}>
-              <option value="all">Tất cả danh mục</option>
-              {categories.map((category) => (
-                <option key={category.ma_danh_muc} value={category.ma_danh_muc}>
-                  {category.ten_danh_muc}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Trạng thái</span>
-            <select value={productStatusFilter} onChange={(event) => setProductStatusFilter(event.target.value)}>
-              <option value="all">Tất cả trạng thái</option>
-              <option value="da_duyet">Đã duyệt</option>
-            </select>
-          </label>
-          <label>
-            <span>Tìm người đăng / tổ chức</span>
-            <input
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Tên người bán, tổ chức, sản phẩm..."
-            />
+        <div className="advanced-filter-row organization-filter-row">
+          <label className="organization-filter-label">
+            <span>Tìm kiếm theo tên tổ chức</span>
+            <div className="organization-filter-field">
+              <input
+                value={organizationFilter}
+                onChange={(event) => {
+                  setOrganizationFilter(event.target.value);
+                  setOrganizationFilterOpen(true);
+                }}
+                onFocus={() => setOrganizationFilterOpen(true)}
+                onBlur={() => window.setTimeout(() => setOrganizationFilterOpen(false), 120)}
+                placeholder="Nhập hoặc chọn tên tổ chức..."
+                autoComplete="off"
+              />
+              {organizationFilter && (
+                <button
+                  type="button"
+                  className="organization-filter-clear"
+                  aria-label="Xóa lọc tổ chức"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    setOrganizationFilter('');
+                    setOrganizationFilterOpen(false);
+                  }}
+                >
+                  <LuX size={16} />
+                </button>
+              )}
+              {organizationFilterOpen && (
+                <div className="organization-filter-options">
+                  {visibleOrganizationOptions.length > 0 ? (
+                    visibleOrganizationOptions.map((organizationName) => (
+                      <button
+                        type="button"
+                        key={organizationName}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          setOrganizationFilter(organizationName);
+                          setOrganizationFilterOpen(false);
+                        }}
+                      >
+                        {organizationName}
+                      </button>
+                    ))
+                  ) : (
+                    <p className="organization-filter-empty">Không có tổ chức phù hợp</p>
+                  )}
+                </div>
+              )}
+            </div>
           </label>
         </div>
       </section>

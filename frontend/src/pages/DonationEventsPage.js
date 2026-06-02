@@ -76,12 +76,14 @@ function DonorList({ donors }) {
         <ul className="donor-list">
           {donors.map((donor, index) => (
             <li key={`${donor.ho_ten}-${donor.lop}-${index}`}>
-              {donor.anh_bien_lai && donor.loai_dong_gop === "nhan_do_vat" && (
-                <img className="donor-item-image" src={getAssetUrl(donor.anh_bien_lai)} alt="Đồ vật quyên góp" />
-              )}
-              <strong>{donor.ho_ten}</strong>
-              {Number(donor.so_luong_do_vat || 0) > 0 && <em>{donor.so_luong_do_vat} món</em>}
-              <span>{donor.lop || "Chưa cập nhật lớp"}</span>
+              <span className="donor-info">
+                <strong>{donor.ho_ten}</strong>
+                <small>{donor.lop || "Chưa cập nhật lớp"}</small>
+              </span>
+              <em>
+                {donor.ten_do_vat || "Đồ vật"}
+                {Number(donor.so_luong_do_vat || 0) > 0 ? ` - ${donor.so_luong_do_vat} món` : ""}
+              </em>
             </li>
           ))}
         </ul>
@@ -267,7 +269,6 @@ export default function DonationEventsPage({
   const [events, setEvents] = useState([]);
   const [eventSearchTerm, setEventSearchTerm] = useState("");
   const [eventTypeFilter, setEventTypeFilter] = useState("all");
-  const [eventStatusFilter, setEventStatusFilter] = useState("all");
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -283,6 +284,7 @@ export default function DonationEventsPage({
   const [itemEvent, setItemEvent] = useState(null);
   const [itemFile, setItemFile] = useState(null);
   const [itemPreview, setItemPreview] = useState("");
+  const [itemProductName, setItemProductName] = useState("");
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemNote, setItemNote] = useState("");
   const [itemSubmitting, setItemSubmitting] = useState(false);
@@ -385,9 +387,7 @@ export default function DonationEventsPage({
 
     return events.filter((event) => {
       const matchesType = eventTypeFilter === "all" || event.hinh_thuc_quyen_gop === eventTypeFilter;
-      const matchesStatus = eventStatusFilter === "all" || event.trang_thai === eventStatusFilter;
       if (!matchesType) return false;
-      if (!matchesStatus) return false;
       if (!keyword) return true;
 
       return [
@@ -398,7 +398,7 @@ export default function DonationEventsPage({
         getDonationTypeLabel(event.hinh_thuc_quyen_gop),
       ].some((value) => String(value || "").toLowerCase().includes(keyword));
     });
-  }, [eventSearchTerm, eventStatusFilter, eventTypeFilter, events]);
+  }, [eventSearchTerm, eventTypeFilter, events]);
 
   const refreshCampaignProducts = async (campaignId) => {
     try {
@@ -470,6 +470,7 @@ export default function DonationEventsPage({
 
     setItemEvent(event);
     setItemFile(null);
+    setItemProductName("");
     setItemQuantity(1);
     setItemNote("");
     setItemMessage("");
@@ -480,6 +481,7 @@ export default function DonationEventsPage({
     setItemEvent(null);
     setItemFile(null);
     setItemPreview("");
+    setItemProductName("");
     setItemQuantity(1);
     setItemNote("");
     setItemMessage("");
@@ -560,8 +562,8 @@ export default function DonationEventsPage({
 
     if (!itemEvent) return;
 
-    if (!itemFile) {
-      setItemError("Vui lòng tải lên ảnh đồ vật quyên góp.");
+    if (!itemProductName.trim()) {
+      setItemError("Vui lòng nhập tên đồ vật quyên góp.");
       return;
     }
 
@@ -572,7 +574,10 @@ export default function DonationEventsPage({
     }
 
     const formData = new FormData();
-    formData.append("receipt", itemFile);
+    if (itemFile) {
+      formData.append("receipt", itemFile);
+    }
+    formData.append("ten_do_vat", itemProductName.trim());
     formData.append("so_luong_do_vat", String(numericQuantity));
     formData.append("ghi_chu", itemNote);
 
@@ -583,29 +588,9 @@ export default function DonationEventsPage({
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const nextDonor = {
-        ho_ten: "Bạn",
-        lop: "",
-        loai_dong_gop: "nhan_do_vat",
-        so_luong_do_vat: numericQuantity,
-        anh_bien_lai: res.data.anh_bien_lai,
-        ghi_chu: itemNote,
-      };
-      setItemEvent((currentEvent) => currentEvent ? {
-        ...currentEvent,
-        nguoi_quyen_gop: [nextDonor, ...(currentEvent.nguoi_quyen_gop || [])],
-      } : currentEvent);
-      setEvents((currentEvents) => currentEvents.map((event) => (
-        event.ma_hoat_dong === itemEvent.ma_hoat_dong
-          ? { ...event, nguoi_quyen_gop: [nextDonor, ...(event.nguoi_quyen_gop || [])] }
-          : event
-      )));
-      setDetailEvent((currentEvent) => currentEvent?.ma_hoat_dong === itemEvent.ma_hoat_dong
-        ? { ...currentEvent, nguoi_quyen_gop: [nextDonor, ...(currentEvent.nguoi_quyen_gop || [])] }
-        : currentEvent
-      );
-      setItemMessage(res.data.message || "Đã ghi nhận đồ vật quyên góp.");
+      setItemMessage(res.data.message || "Đã gửi đăng ký quyên góp đồ vật. Vui lòng chờ tổ chức xác nhận.");
       setItemFile(null);
+      setItemProductName("");
       setItemQuantity(1);
       setItemNote("");
     } catch (err) {
@@ -799,6 +784,17 @@ export default function DonationEventsPage({
             </label>
 
             <label className="community-field">
+              <span className="community-label">Tên đồ vật / sản phẩm</span>
+              <input
+                className="community-input"
+                value={itemProductName}
+                onChange={(event) => setItemProductName(event.target.value)}
+                placeholder="Ví dụ: Sách giáo khoa lớp 6"
+                disabled={Boolean(itemMessage)}
+              />
+            </label>
+
+            <label className="community-field">
               <span className="community-label">Số lượng</span>
               <input
                 className="community-input"
@@ -824,7 +820,7 @@ export default function DonationEventsPage({
               onClick={submitItemContribution}
               disabled={itemSubmitting || Boolean(itemMessage)}
             >
-              {itemSubmitting ? "Đang gửi..." : "Xác nhận quyên góp"}
+              {itemSubmitting ? "Đang gửi..." : "Gửi đăng ký"}
             </button>
           </aside>
         </section>
@@ -1200,17 +1196,6 @@ export default function DonationEventsPage({
               <option value="nhan_tien_chuyen_khoan">Nhận tiền chuyển khoản</option>
               <option value="ban_do_quyen_gop">Bán đồ quyên góp</option>
               <option value="nhan_do_vat">Nhận đồ vật</option>
-            </select>
-          </label>
-          <label className="community-field">
-            <span className="community-label">Trạng thái</span>
-            <select
-              className="community-select"
-              value={eventStatusFilter}
-              onChange={(event) => setEventStatusFilter(event.target.value)}
-            >
-              <option value="all">Tất cả trạng thái</option>
-              <option value="da_duyet">Đã duyệt</option>
             </select>
           </label>
         </div>
