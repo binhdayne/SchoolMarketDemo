@@ -9,6 +9,7 @@ router.get("/my", auth, isOrganization, campaign.getMyCampaigns);
 router.get("/my-approved", auth, isOrganization, campaign.getMyApprovedCampaigns);
 router.get("/contributions/pending", auth, isOrganization, campaign.getPendingContributions);
 router.put("/contributions/:contributionId/confirm", auth, isOrganization, campaign.confirmContribution);
+router.put("/contributions/:contributionId/cancel", auth, isOrganization, campaign.cancelContribution);
 router.post("/:id/contributions", auth, upload.single("receipt"), campaign.createCampaignContribution);
 router.delete("/:id", auth, isOrganization, campaign.deleteOwnCampaign);
 router.put("/:id/approve", auth, isAdmin, campaign.approveCampaign);

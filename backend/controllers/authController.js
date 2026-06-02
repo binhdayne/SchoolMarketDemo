@@ -451,6 +451,24 @@ exports.getOrganizations = async (req, res) => {
     }
 };
 
+exports.getApprovedOrganizations = async (req, res) => {
+    try {
+        await ensureAccountReviewColumns();
+
+        const [organizations] = await promiseDb.query(
+            `SELECT ma_to_chuc, ten_to_chuc
+             FROM to_chuc
+             WHERE trang_thai = ?
+             ORDER BY ten_to_chuc ASC, ma_to_chuc DESC`,
+            [USER_STATUS.APPROVED]
+        );
+
+        res.json(organizations);
+    } catch (err) {
+        res.status(500).json({ message: "Không thể lấy danh sách tổ chức đã duyệt", error: err.message });
+    }
+};
+
 exports.getMemberProfile = async (req, res) => {
     const memberId = req.user?.id;
     const accountType = req.user?.accountType || req.user?.role;
