@@ -25,7 +25,15 @@ function getAssetUrl(path) {
 }
 
 function getProductStatus(product) {
-  if (product.ma_thanh_toan) return { className: 'in-transaction', label: 'Chờ xác nhận' };
+  if (product.trang_thai_thanh_toan === 'cho_nguoi_ban_xac_nhan') {
+    return { className: 'in-transaction', label: 'Chờ xác nhận' };
+  }
+  if (product.trang_thai_thanh_toan === 'cho_to_chuc_xac_nhan') {
+    return { className: 'in-transaction', label: 'Chờ tổ chức xác nhận' };
+  }
+  if (['hoan_tat', 'da_ban', 'da_thanh_toan'].includes(product.trang_thai_thanh_toan)) {
+    return { className: 'sold', label: 'Đã bán' };
+  }
   if (product.trang_thai === 'cho_duyet') return { className: 'pending', label: 'Chờ duyệt' };
   if (product.trang_thai === 'da_duyet') return { className: 'approved', label: 'Đã duyệt' };
   if (product.trang_thai === 'dang_giao_dich') return { className: 'in-transaction', label: 'Đã có người mua' };
@@ -50,6 +58,12 @@ function getSystemFeeAmount(payment) {
 
 function canEditPersonalProduct(product, hasBuyer) {
   return !hasBuyer && !product.ma_hoat_dong && product.trang_thai !== 'dang_giao_dich';
+}
+
+function getPaymentStatusNote(status) {
+  if (status === 'cho_to_chuc_xac_nhan') return 'Đang chờ tổ chức xác nhận biên lai.';
+  if (['hoan_tat', 'da_ban', 'da_thanh_toan'].includes(status)) return 'Giao dịch đã được xác nhận.';
+  return 'Giao dịch đang được xử lý.';
 }
 
 function MemberPaymentTab({
@@ -662,7 +676,12 @@ export default function MemberPage({ user, token, navigate }) {
                 <p style={{ color: '#666', fontSize: '14px' }}>Không có sản phẩm phù hợp với bộ lọc.</p>
               ) : filteredMyProducts.map((product) => {
                 const status = getProductStatus(product);
-                const hasBuyer = Boolean(product.ma_thanh_toan);
+                const hasPayment = Boolean(product.ma_thanh_toan);
+                const isLockedByBuyer = hasPayment || product.trang_thai === 'dang_giao_dich';
+                const canSellerDecide = product.trang_thai_thanh_toan === 'cho_nguoi_ban_xac_nhan';
+                const buyerName = product.ten_nguoi_mua || 'Thành viên';
+                const buyerPhone = product.sdt_nguoi_mua || 'Chưa cập nhật';
+                const showBuyerContact = Boolean(product.ten_nguoi_mua || product.sdt_nguoi_mua);
 
                 return (
                   <div key={`${product.ma_san_pham}-${product.ma_thanh_toan || 'product'}`} className="product-card-row">
@@ -680,6 +699,11 @@ export default function MemberPage({ user, token, navigate }) {
                               {formatPrice(product.gia)}
                             </span>
                             <span className={`status-badge ${status.className}`}>{status.label}</span>
+                            {showBuyerContact && (
+                              <span className="buyer-contact-chip">
+                                Người mua: {buyerName} - SĐT: {buyerPhone}
+                              </span>
+                            )}
                           </div>
                           <span className="product-time">{product.ten_danh_muc || 'Chưa phân loại'}</span>
                           <span className="product-time">Còn lại: {product.so_luong || 0}</span>
@@ -690,7 +714,7 @@ export default function MemberPage({ user, token, navigate }) {
                       </div>
 
                       <div className="product-actions-row">
-                        {canEditPersonalProduct(product, hasBuyer) && (
+                        {canEditPersonalProduct(product, isLockedByBuyer) && (
                           <button
                             className="action-icon"
                             onClick={() => openEditModal(product)}
@@ -699,7 +723,7 @@ export default function MemberPage({ user, token, navigate }) {
                             <LuPencil />
                           </button>
                         )}
-                        {hasBuyer && product.anh_xac_nhan_giao_dich && (
+                        {hasPayment && product.anh_xac_nhan_giao_dich && (
                           <a
                             className="action-icon"
                             href={getAssetUrl(product.anh_xac_nhan_giao_dich)}
@@ -710,7 +734,7 @@ export default function MemberPage({ user, token, navigate }) {
                             <LuEye />
                           </a>
                         )}
-                        {!hasBuyer && (
+                        {!isLockedByBuyer && (
                           <button
                             className="action-icon delete"
                             onClick={() => openDeleteModal(product.ma_san_pham)}
@@ -722,11 +746,11 @@ export default function MemberPage({ user, token, navigate }) {
                       </div>
                     </div>
 
-                    {hasBuyer && (
+                    {hasPayment && (
                       <div className="buyer-panel">
                         <div className="buyer-info">
-                          <strong>Người mua:</strong> {product.ten_nguoi_mua || 'Thành viên'}
-                          <span>SĐT: {product.sdt_nguoi_mua || 'Chưa cập nhật'}</span>
+                          <strong>Người mua:</strong> {buyerName}
+                          <span>SĐT: {buyerPhone}</span>
                           <span>Email: {product.email_nguoi_mua || 'Chưa cập nhật'}</span>
                           <span>Số lượng mua: {product.so_luong_mua || 1}</span>
                           <span>Số tiền: {formatPrice(product.so_tien_giao_dich || product.gia)}</span>
@@ -738,24 +762,28 @@ export default function MemberPage({ user, token, navigate }) {
                             alt="Biên lai người mua"
                           />
                         )}
-                        <div className="seller-decision-actions">
-                          <button
-                            type="button"
-                            className="seller-confirm-btn"
-                            disabled={processingPaymentId === product.ma_thanh_toan}
-                            onClick={() => handleSellerDecision(product, 'confirm')}
-                          >
-                            Xác nhận
-                          </button>
-                          <button
-                            type="button"
-                            className="seller-reject-btn"
-                            disabled={processingPaymentId === product.ma_thanh_toan}
-                            onClick={() => handleSellerDecision(product, 'reject')}
-                          >
-                            Từ chối
-                          </button>
-                        </div>
+                        {canSellerDecide ? (
+                          <div className="seller-decision-actions">
+                            <button
+                              type="button"
+                              className="seller-confirm-btn"
+                              disabled={processingPaymentId === product.ma_thanh_toan}
+                              onClick={() => handleSellerDecision(product, 'confirm')}
+                            >
+                              Xác nhận
+                            </button>
+                            <button
+                              type="button"
+                              className="seller-reject-btn"
+                              disabled={processingPaymentId === product.ma_thanh_toan}
+                              onClick={() => handleSellerDecision(product, 'reject')}
+                            >
+                              Từ chối
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="seller-payment-note">{getPaymentStatusNote(product.trang_thai_thanh_toan)}</p>
+                        )}
                       </div>
                     )}
                   </div>

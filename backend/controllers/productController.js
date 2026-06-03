@@ -503,11 +503,35 @@ exports.getMyProducts = async (req, res) => {
              LEFT JOIN danh_muc dm ON dm.ma_danh_muc = sp.ma_danh_muc
              LEFT JOIN thanh_toan tt
                 ON tt.ma_san_pham = sp.ma_san_pham
-                AND tt.trang_thai = ?
+                AND (
+                    tt.trang_thai IN (?, ?)
+                    OR (
+                        sp.trang_thai = ?
+                        AND tt.trang_thai IN (?, ?, ?)
+                    )
+                )
              LEFT JOIN thanh_vien buyer ON buyer.ma_thanh_vien = tt.ma_thanh_vien_gui
              WHERE sp.ma_thanh_vien = ?
-             ORDER BY sp.ma_san_pham DESC`,
-            [PAYMENT_STATUS.PENDING_SELLER, ma_thanh_vien]
+             ORDER BY
+                sp.ma_san_pham DESC,
+                CASE
+                    WHEN tt.trang_thai = ? THEN 0
+                    WHEN tt.trang_thai = ? THEN 1
+                    ELSE 2
+                END,
+                tt.ngay_gui DESC,
+                tt.ma_thanh_toan DESC`,
+            [
+                PAYMENT_STATUS.PENDING_SELLER,
+                PAYMENT_STATUS.PENDING_ORGANIZATION,
+                PRODUCT_STATUS.IN_TRANSACTION,
+                PAYMENT_STATUS.COMPLETED,
+                'da_ban',
+                'da_thanh_toan',
+                ma_thanh_vien,
+                PAYMENT_STATUS.PENDING_SELLER,
+                PAYMENT_STATUS.PENDING_ORGANIZATION
+            ]
         );
 
         res.json(products);
@@ -664,6 +688,7 @@ exports.getPurchaseDetail = async (req, res) => {
                 dm.ten_danh_muc,
                 seller.ma_thanh_vien AS ma_nguoi_ban,
                 seller.ho_ten AS ten_nguoi_ban,
+                seller.sdt AS sdt_nguoi_ban,
                 seller.ma_ngan_hang,
                 seller.so_tai_khoan,
                 seller.ten_ngan_hang,
