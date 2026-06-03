@@ -165,6 +165,7 @@
 .product-price-status {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -274,6 +275,27 @@
   font-weight: 700;
 }
 
+.status-badge.sold {
+  background-color: #ecfdf5;
+  color: #047857;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.buyer-contact-chip {
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+  border-radius: 20px;
+  color: #1e40af;
+  font-size: 12px;
+  font-weight: 700;
+  max-width: 100%;
+  padding: 4px 10px;
+  overflow-wrap: anywhere;
+}
+
 .buyer-panel {
   align-items: center;
   background: #f8fafc;
@@ -309,6 +331,17 @@
 .seller-decision-actions {
   display: flex;
   gap: 8px;
+}
+
+.seller-payment-note {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0;
+  padding: 10px 12px;
 }
 
 .seller-confirm-btn,

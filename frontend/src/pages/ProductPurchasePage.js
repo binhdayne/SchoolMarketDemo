@@ -160,6 +160,8 @@ export default function ProductPurchasePage({ productId, purchaseQuantity = 1, t
                 <strong>{product.so_luong || 1}</strong>
                 <span>Người bán</span>
                 <strong>{product.ten_nguoi_ban || 'Thành viên'}</strong>
+                <span>SĐT người bán</span>
+                <strong>{product.sdt_nguoi_ban || 'Chưa cập nhật'}</strong>
                 {isDonationProduct && (
                   <>
                     <span>Sự kiện</span>
